@@ -1,0 +1,13 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { PlusCircle, Pencil, CalendarDays, MapPin, UsersRound, Eye, Trash2, Copy } from 'lucide-vue-next'
+import OwnerTabs from '../components/OwnerTabs.vue'
+import { ensureInstructor } from '../lib/instructor'
+import { authRequest,notify,money,dateText,niceTime } from '../lib/state'
+const workshops=ref([]),busy=ref(false)
+async function load(){try{await ensureInstructor();workshops.value=(await authRequest('/instructor/workshops')).items}catch(e){notify(e.message)}}
+onMounted(load)
+async function remove(w){if(!confirm(`¿Eliminar la publicación "${w.title}"? Solo se permite si no tiene reservas.`))return;try{busy.value=true;await authRequest(`/instructor/workshops/${w.id}`,{method:'DELETE'});notify('Publicación eliminada');await load()}catch(e){notify(e.message)}finally{busy.value=false}}
+</script>
+<template><div class="page owner-page"><div class="page-heading"><div><div class="eyebrow earth">MODO TALLERISTA</div><h1>Mis publicaciones</h1><p class="muted">Edita tus talleres, consulta cupos y vuelve a publicar sesiones anteriores.</p></div><RouterLink to="/tallerista/publicar" class="btn primary"><PlusCircle :size="18"/> Crear taller</RouterLink></div><OwnerTabs/>
+<div class="published-list"><article v-for="w in workshops" :key="w.id" class="published-card"><img :src="w.image" :alt="w.title"/><div class="published-info"><div class="between"><h3>{{w.title}}</h3><span class="status-chip">{{w.published?'Publicado':'No publicado'}}</span></div><p class="muted"><MapPin :size="15"/> {{w.district}} · {{money(w.price)}}</p><p class="muted"><CalendarDays :size="15"/> {{dateText(w.date)}} · {{niceTime(w.startsAt)}}</p><p class="muted"><UsersRound :size="15"/> {{w.reserved}}/{{w.capacity}} cupos ocupados</p><div class="published-actions"><RouterLink class="btn light sm" :to="`/tallerista/editar/${w.id}`"><Pencil :size="15"/> Editar</RouterLink><RouterLink class="btn outline sm" :to="`/tallerista/publicar?duplicate=${w.id}`"><Copy :size="15"/> Duplicar</RouterLink><RouterLink class="btn ghost sm" :to="`/taller/${w.id}`"><Eye :size="15"/> Ver</RouterLink><button class="btn ghost sm danger" @click="remove(w)" :disabled="busy"><Trash2 :size="15"/> Eliminar</button></div></div></article><div v-if="!workshops.length" class="empty">Aún no has publicado talleres. <RouterLink to="/tallerista/publicar" class="text-link">Crea el primero →</RouterLink></div></div></div></template>
