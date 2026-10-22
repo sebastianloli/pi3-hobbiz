@@ -1,152 +1,103 @@
-# Hobbiz — prototipo funcional web (frontend + backend)
+# Hobbiz — MVP integrado (cliente + tallerista)
 
-Prototipo universitario de Hobbiz para **descubrir, comparar, reservar y gestionar talleres en Lima**, siguiendo las capturas de referencia: paleta naranja/terracota, fondo crema, tarjetas fotográficas, pestañas Cliente/Tallerista y navegación inferior.
+Prototipo universitario para conectar a personas que buscan talleres recreativos en Lima con pequeños talleristas. Desarrollo sobre el MVP de `main`, incorporando la propuesta de `rama_santiago` (**MongoDB Atlas + Firebase Authentication**) y unificando el flujo de cliente y tallerista. Este ZIP es una **entrega de integración**, no un cambio aplicado al repositorio GitHub.
 
-> **Versión de demostración:** funciona **sin base de datos, Firebase, Google Maps ni pagos reales**. Las operaciones se guardan temporalmente **en memoria del proceso del backend** y se reinician al detenerlo. Las imágenes son ilustrativas y los talleres, reservas, precios, reseñas y personas son datos de prueba.
+**Stack:** Vue 3, Vue Router, Vite, Node.js, Express 5, Firebase Auth (opcional), MongoDB Atlas (opcional). Fotos y contenido del catálogo: ilustrativos.
 
-## 1. Requisitos
+## 1. Ejecutar de inmediato en VS Code (sin credenciales externas)
 
-- **Node.js 20.19 o superior** (recomendado Node.js 22 LTS).
-- npm y Visual Studio Code.
-- Conexión a Internet **una sola vez** para instalar las dependencias de npm.
+Requisitos: Node.js >= 20.19 y npm. Abre en VS Code la carpeta que contiene `package.json`.
 
-## 2. Ejecutar desde Visual Studio Code
-
-1. Extrae el ZIP y abre la **carpeta `Hobbiz-MVP`** en VS Code (Archivo → Abrir carpeta).
-2. Abre el terminal integrado (Terminal → Nuevo terminal).
-3. En la raíz del proyecto ejecuta:
-
-```bash
+```powershell
 npm install
 npm run dev
 ```
 
-4. Abre **http://localhost:5173/**.
-5. La API funciona en **http://localhost:3001/api/health**.
+- Frontend: http://localhost:5173
+- API: http://127.0.0.1:3001/api/health
+- `npm run dev` inicia frontend y backend simultáneamente.
+- Modo predeterminado `demo`: datos temporales en memoria. Se reinician al cerrar el backend.
+- Cuentas demo: `cliente@hobbiz.pe` / `Demo12345!` y `tallerista@hobbiz.pe` / `Demo12345!`.
+- Si se ejecuta en una red pública, **no expongas el modo demo**: es deliberadamente inseguro y solo para pruebas locales.
 
-`npm run dev` levanta ambos servidores simultáneamente gracias a npm workspaces y `concurrently`; Vite redirige `/api` a Express. No es necesario crear `.env`.
+## 2. Activar implementación de Santiago: Firebase + MongoDB
 
-Para detener ambos procesos: **Ctrl + C**. También puedes usar VS Code → Terminal → Ejecutar tarea → **Hobbiz: frontend + backend**.
+La integración ahora utiliza **un solo sistema de identidad por modo**. En `firebase-mongo` el ID del token Firebase, verificado en backend, es el ID de usuario para reservas, guardados, publicaciones y reseñas; MongoDB almacena perfiles, talleres, reservas, reseñas, comentarios de validación y fotos en documentos.
 
-### Comandos adicionales
+1. Copia `backend/.env.example` como `backend/.env`.
+2. Cambia `HOBBIZ_MODE=firebase-mongo` y configura `MONGODB_URI`, `MONGODB_DB`, `MONGODB_PASSWORD` (si la URL utiliza `<db_password>`), `FIREBASE_PROJECT_ID`.
+3. Para Firebase Admin SDK, configura `GOOGLE_APPLICATION_CREDENTIALS` con una **cuenta de servicio privada guardada fuera del repositorio**. No se distribuyen credenciales privadas. Obtén las credenciales desde un proyecto autorizado de Firebase.
+4. Copia `frontend/.env.example` como `frontend/.env`. Incluye los parámetros públicos del proyecto Firebase que figuraba en `rama_santiago`. Comprueba que el proyecto Firebase esté activo y que el método correo/contraseña esté habilitado en Authentication.
+5. Autoriza la IP de desarrollo en MongoDB Atlas; crea usuario de BD con privilegios mínimos para desarrollo.
+6. En `backend/.env`, `MONGODB_SEED_CATALOG=true` carga 8 talleres **ilustrativos** en una BD vacía. No crea cuentas Firebase demo. Para iniciar con catálogo vacío, usa `false`.
+7. Desde la raíz ejecuta `npm install` y `npm run dev`. En Hobbiz usa **Mi cuenta** para crear usuario/tallerista real. Las nuevas publicaciones serán propiedad del UID de Firebase.
 
-```bash
-npm run build   # compila el frontend para distribución
-npm test        # pruebas funcionales del backend (Node test runner)
-```
+**Importante:** El modo `firebase-mongo` necesita MongoDB conectado para arrancar y credenciales válidas para verificar tokens. Si quieres seguir desarrollando sin estas configuraciones usa el modo `demo`. No existe mezcla entre tokens demo y Firebase.
 
-Si prefieres terminales separadas:
-
-```bash
-npm run dev --workspace backend
-npm run dev --workspace frontend
-```
-
-## 3. Acceso inmediato de demostración
-
-Al abrir la app se inicia automáticamente una **sesión demo de cliente**. En el encabezado puedes alternar entre **Cliente** y **Tallerista**; el cambio inicia la sesión demo del rol elegido.
-
-| Rol | Correo | Contraseña |
-|---|---|---|
-| Cliente | `cliente@hobbiz.pe` | `Demo12345!` |
-| Tallerista | `tallerista@hobbiz.pe` | `Demo12345!` |
-
-En **Perfil** también puedes probar registro e inicio de sesión con una cuenta nueva. Para volver a las cuentas precargadas usa el conmutador de roles o «Restaurar demo».
-
-**Importante:** las credenciales son exclusivamente de demostración. No uses estas credenciales en producción.
-
-## 4. Funcionalidades implementadas
+## 3. Funciones actuales
 
 ### Cliente
-
-- **Inicio:** hero, categorías, catálogo fotográfico y sugerencias sencillas basadas en intereses, distrito y presupuesto.
-- **Explorar:** búsqueda de texto y filtros por categoría, distrito, precio máximo y día.
-- **Buscar cerca de mí:** selecciona un distrito y un radio de 3 a 25 km. Se calcula la distancia aproximada entre centros distritales; **no se utiliza GPS**.
-- **Detalle:** foto, precio, descripción, fecha, horario, local, dirección, nivel requerido, materiales incluidos, materiales que debe traer el participante, instructor, cupos y reseñas.
-- **Guardados:** ícono de **marcador/lazo**; favoritos vinculados a la cuenta.
-- **Reserva simulada:** validación de disponibilidad, cupos actualizados, confirmación y registro visible en Perfil. No procesa dinero.
-- **Reseñas:** calificación de 1 a 5 estrellas y comentario. Requiere una reserva registrada para el taller (la demo no comprueba asistencia efectiva).
-- **Perfil:** nombre, intereses, presupuesto, distrito y día preferido; listado de reservas.
+- Catálogo centralizado y búsqueda por palabra, categoría, distrito, presupuesto y día.
+- "Cerca de mí": selecciona distrito de referencia o autoriza una ubicación GPS puntual; usa radio de 3 a 25 km. Distancia aproximada al centro de los distritos de los talleres (sin Google Maps). Las coordenadas del usuario no se almacenan.
+- Talleres agotados se ocultan del catálogo salvo búsqueda del **nombre exacto**; se sigue viendo su ficha si se tiene el enlace.
+- Ficha con descripción, fotos, local, dirección, nivel, materiales, precio, horario, cupos y reseñas.
+- Perfil y preferencias, guardados, reservas simuladas y valoración 1-5 con comentario, después de una reserva.
+- Agenda mensual de reservas y aviso **dentro de la web** cuando una sesión empieza en menos de 48h.
+- Sugerencias por reglas simples en Inicio (sin IA).
+- Formulario de opinión para validar el prototipo.
 
 ### Tallerista
+- Panel de talleres activos, ocupación, cupos, ingresos **estimados, no cobrados**, calificaciones.
+- Crear/editar/ocultar/publicar/eliminar un taller; validación de todos los campos obligatorios en frontend y backend.
+- Duplicar talleres para otra fecha.
+- Publicar serie **semanal** de hasta ocho sesiones independientes y controlar cupos por sesión.
+- Ver inscritos, agenda y reseñas.
+- Perfil público: nombre del estudio, biografía, foto de portada, enlace HTTPS y paleta visual predefinida.
 
-- **Panel:** talleres activos, cupos reservados, ingreso estimado *no cobrado*, valoración media y gráficos de ocupación por taller, con filtro para seleccionar la publicación.
-- **Mis talleres:** lista de publicaciones, edición, duplicación de fichas para nuevas fechas y eliminación solo si no existen reservas.
-- **Crear taller:** formulario con validación en frontend y backend. **Obligatorios**: foto, título, resumen, descripción, categoría, nivel, precio, local, dirección, distrito, fecha, hora de inicio y fin, cupos, materiales incluidos y materiales que debe llevar el participante.
-- **Fotos:** galería local de demostración o archivo JPG/PNG/WebP de hasta **1 MB** (guardado temporalmente en memoria).
-- **Agenda:** sesiones por día y hora, filtrables por distrito, con acceso a edición.
-- **Inscritos:** tabla de participantes con búsqueda, filtro por taller, código, estado y cupos reservados.
-- **Reseñas:** opiniones recibidas y promedio de estrellas.
+## 4. Comandos
 
-### Alcance intencionalmente excluido
-
-Sin pasarela de pagos, chatbot/chat en tiempo real, notificaciones push, IA, verificación oficial de identidad, integración con redes sociales ni aplicación Android/iOS nativa. Tampoco hay base de datos persistente ni GPS: se incorporarán, si se aprueba, en otra etapa.
-
-## 5. Estructura del proyecto
-
-```text
-Hobbiz-MVP/
-├── backend/
-│   ├── src/
-│   │   ├── index.js         # servidor Express
-│   │   ├── app.js           # rutas API, validaciones y lógica
-│   │   └── data.js          # datos semilla y almacén temporal
-│   └── test/api.test.js     # pruebas funcionales de API
-├── frontend/
-│   ├── public/images/      # imágenes locales ilustrativas
-│   ├── src/
-│   │   ├── App.vue          # shell, header y navegación
-│   │   ├── router.js        # rutas del frontend
-│   │   ├── style.css        # sistema de diseño responsive
-│   │   ├── components/      # tarjetas, tabs, listados
-│   │   ├── views/           # pantallas cliente y tallerista
-│   │   └── lib/             # consumo API y sesión demo
-│   └── vite.config.js       # proxy /api → backend
-├── .vscode/                 # tareas y extensiones sugeridas
-└── package.json            # comandos desde la raíz
+```powershell
+npm install                  # instala las dependencias y genera package-lock.json
+npm run dev                 # levanta frontend + backend
+npm run build               # compila frontend (Vite)
+npm test                    # pruebas de API, roles, reservas, recurrencias
 ```
 
-## 6. Recorrido sugerido para la presentación
+> Este paquete **no incluye `node_modules` ni `package-lock.json`**. El lockfile del MVP anterior no describe las dependencias de Santiago; `npm install` generará uno correcto. Confírmalo después en Git.
 
-1. En **Cliente → Inicio**, observa las tarjetas y entra a **Explorar**.
-2. Filtra por **Arte**, **Miraflores**, precio máximo **S/60**, sábado.
-3. Prueba **«Buscar talleres cerca de mí»** y elige distrito/radio.
-4. Abre **Taller de cerámica**, revisa nivel, materiales y disponibilidad.
-5. Guárdalo, revisa **Guardados**, luego efectúa una **reserva simulada**.
-6. En **Perfil** verifica el código de reserva.
-7. Cambia a **Tallerista** con el conmutador del encabezado. Revisa **Resumen**, ocupación y **Mis talleres**.
-8. Crea una nueva publicación. Si falta información, no podrás guardarla.
-9. Abre **Agenda** e **Inscritos**: verás los datos derivados de las reservas. Prueba editar una publicación.
+## 5. Seguridad y limitaciones explícitas
 
-## 7. API principal
+- **No hay pagos reales**, notificaciones push, chat, verificación documental de talleristas, IA, integración con redes sociales ni app móvil nativa.
+- Las fotografías que se suben se almacenan como Base64 en el documento del taller; para producción se necesitará almacenamiento de objetos, redimensionamiento y análisis de archivos.
+- El almacenamiento MongoDB mantiene una **copia en memoria por proceso** para responder al catálogo; está pensado para **una instancia única de Express**. La cola de reservas evita sobreventa dentro de ese único proceso, pero para múltiples réplicas hay que reemplazarla por transacciones/actualizaciones atómicas MongoDB, relecturas y mecanismos de consistencia. No es un backend listo para Internet/producción.
+- El modo demo tiene acceso a cuentas fijas, por eso solo es adecuado para desarrollo local.
+- Las recomendaciones son basadas en reglas de intereses, zona y precio; no usan aprendizaje automático.
+- El mapa completo con puntos georreferenciados y Google Maps se considera etapa posterior. "Cerca de mí" permite GPS puntual del usuario, pero calcula la distancia a centroides de distritos de talleres.
+- Las sesiones recurrentes se generan como publicaciones independientes cada siete días; no existe todavía un editor masivo de series.
+- El perfil configurable admite una biografía, nombre, portada, enlace HTTPS y tres temas predefinidos; no admite estilos personalizados arbitrarios por seguridad.
+- Si quieres filtrar por horario exacto y no solo día de semana, deberás ampliar la API.
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/api/health` | Estado del servidor |
-| GET | `/api/meta` | Distritos, categorías, galería de imágenes |
-| POST | `/api/auth/login` | Inicio de sesión de demostración |
-| POST | `/api/auth/register` | Registrar cuenta temporal |
-| GET / PATCH | `/api/auth/me`, `/api/me` | Ver / editar perfil |
-| GET | `/api/workshops` | Catálogo y filtros: `q`, `category`, `district`, `maxPrice`, `day`, `near`, `radiusKm` |
-| GET | `/api/workshops/:id` | Ficha completa |
-| GET | `/api/recommendations` | Recomendaciones por reglas simples |
-| GET/POST/DELETE | `/api/me/favorites`, `/api/me/favorites/:id` | Guardados |
-| POST | `/api/workshops/:id/bookings` | Reserva con control de cupos |
-| GET | `/api/me/bookings` | Mis reservas |
-| GET / POST | `/api/workshops/:id/reviews` | Consultar / publicar reseñas |
-| GET | `/api/instructor/dashboard` | Indicadores |
-| GET / POST | `/api/instructor/workshops` | Lista / crear publicaciones |
-| PUT / DELETE | `/api/instructor/workshops/:id` | Editar / eliminar |
-| GET | `/api/instructor/bookings` | Inscritos |
-| GET | `/api/instructor/schedule` | Agenda |
-| GET | `/api/instructor/reviews` | Reseñas de sus talleres |
+## 6. Requisitos, checklist y pruebas
 
-Para rutas privadas envía `Authorization: Bearer <token>`. La autenticación, la seguridad, la concurrencia y el almacenamiento aquí están pensados **solo para un único proceso de demostración**; la migración a producción requerirá persistencia, control transaccional multi-instancia, sesiones seguras y medidas adicionales.
+- Requisitos y estado: [`docs/CHECKLIST_EPYC.md`](docs/CHECKLIST_EPYC.md).
+- Pruebas manuales: [`docs/PRUEBAS_MANUALES.md`](docs/PRUEBAS_MANUALES.md).
+- Los tests de Firebase usan un **verificador simulado de tokens** y un guardado simulado, no conexiones de pago/Atlas. La prueba de integración real de Firebase/Mongo debe ejecutarse con servicios autorizados.
 
-## 8. Próxima etapa técnica
+## 7. Incorporarlo en Git sin perder `main`
 
-1. Sustituir `backend/src/data.js` por repositorios persistentes (MongoDB/SQL).
-2. Integrar un proveedor de identidad si se decide (Firebase Authentication, por ejemplo).
-3. Sustituir imágenes base64 por almacenamiento de objetos.
-4. Probar concurrencia real de reservas en una base de datos transaccional.
-5. Configurar despliegue y seguridad antes de exponer el sistema a Internet.
+El ZIP contiene los archivos del proyecto **sin carpeta `.git`**. En el repositorio ya existente:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git switch -c feature/integracion-santiago
+# Copia los archivos de este ZIP SOBRE tu carpeta local del repositorio.
+npm install
+npm test
+npm run build
+git add .
+git commit -m "Integra autenticacion, persistencia y mejoras del MVP"
+git push -u origin feature/integracion-santiago
+```
+
+Revisa los cambios mediante Pull Request antes de llevarlos a `main`. **No intentes hacer merge directo de `rama_santiago` a `main`**: los commits actuales no comparten ancestro. No subas `backend/.env`, `frontend/.env` ni credenciales JSON.

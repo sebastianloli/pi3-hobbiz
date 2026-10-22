@@ -12,7 +12,7 @@ const feedback = (store, id) => store.reviews.filter(r => r.workshopId === id)
 const enrich = (store, workshop) => {
   const reviews = feedback(store, workshop.id)
   const taken = seatsBooked(store, workshop.id)
-  return { ...workshop, reserved: taken, available: Math.max(0, workshop.capacity - taken), rating: reviews.length ? round(reviews.reduce((s,v)=>s+v.stars,0)/reviews.length) : null, reviewCount: reviews.length, instructorName: store.users.find(u => u.id===workshop.instructorId)?.name ?? 'Tallerista de Hobbiz' }
+  return { ...workshop, reserved: taken, available: Math.max(0, workshop.capacity - taken), rating: reviews.length ? round(reviews.reduce((s,v)=>s+v.stars,0)/reviews.length) : null, reviewCount: reviews.length, instructorName: store.users.find(u => u.id===workshop.instructorId)?.studio?.displayName || store.users.find(u => u.id===workshop.instructorId)?.name || 'Tallerista de Hobbiz', instructorStudio:store.users.find(u=>u.id===workshop.instructorId)?.studio || null }
 }
 const distanceKm = (a,b) => {
   const radians = v => (v*Math.PI)/180
@@ -26,11 +26,20 @@ const getAuth = (req, store) => {
   return store.users.find(u => u.id===userId) || null
 }
 const error = (res, code, message) => res.status(code).json({ error: message })
-const requireAuth = (store, role) => (req, res, next) => {
-  req.user = getAuth(req, store)
-  if (!req.user) return error(res,401,'Inicia sesión para continuar.')
-  if (role && req.user.role !== role) return error(res,403,'No tienes permisos para realizar esta acción.')
-  next()
+const requireAuth = (store, role, options) => async (req, res, next) => {
+  try {
+    if (options.mode === 'firebase-mongo') {
+      const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+      if (!token) return error(res, 401, 'Inicia sesión para continuar.')
+      const identity = await options.verifyIdToken(token)
+      req.user = store.users.find(u => u.id === identity.uid) || null
+    } else {
+      req.user = getAuth(req, store)
+    }
+    if (!req.user) return error(res,401,'Completa tu perfil o inicia sesión.')
+    if (role && req.user.role !== role) return error(res,403,'No tienes permisos para realizar esta acción.')
+    next()
+  } catch { return error(res,401,'La sesión no es válida. Vuelve a ingresar.') }
 }
 
 function checkPassword(password, digest) {
@@ -62,18 +71,30 @@ const publicWorkshop = (store, id) => {
   return found ? enrich(store, found) : null
 }
 
-export function createApp(store = createSeedStore()) {
+export function createApp(store = createSeedStore(), options = {}) {
+  const mode = options.mode || 'demo'
+  const persistent = mode === 'firebase-mongo'
+  let reservationQueue = Promise.resolve()
+  const reserveSerially = fn => {
+    const result = reservationQueue.then(fn,fn)
+    reservationQueue = result.catch(()=>{})
+    return result
+  }
+  const persist = async (kind, record) => { if (options.persistOne) await options.persistOne(kind, record) }
+  const removePersisted = async (kind, id) => { if (options.removeOne) await options.removeOne(kind, id) }
+
   const app = express()
   app.disable('x-powered-by')
-  app.use(cors({ origin: process.env.CORS_ORIGIN || true }))
+  app.use(cors({ origin: process.env.CORS_ORIGIN || (persistent ? 'http://localhost:5173' : true) }))
   app.use(express.json({ limit: '2mb' }))
-  const auth = requireAuth(store)
-  const instructor = requireAuth(store, 'instructor')
+  const auth = requireAuth(store, undefined, options)
+  const instructor = requireAuth(store, 'instructor', options)
 
-  app.get('/api/health', (_req,res) => res.json({ status: 'ok', mode: 'demo-memory', version:'1.0.0' }))
+  app.get('/api/health', (_req,res) => res.json({ status: 'ok', mode, version:'2.0.0' }))
   app.get('/api/meta', (_req,res) => res.json({ categories, districts: Object.keys(districts), images: imageNames.map(i => `/images/${i}`) }))
 
   app.post('/api/auth/login', (req,res) => {
+    if (persistent) return error(res, 409, 'Usa Firebase Authentication para acceder.')
     const { email='', password='' } = req.body || {}
     const user = store.users.find(u => normalize(u.email) === normalize(email))
     if (!user || !checkPassword(password, user.passwordHash)) return error(res,401,'Credenciales incorrectas.')
@@ -82,6 +103,7 @@ export function createApp(store = createSeedStore()) {
     res.json({ token, user: safeUser(user) })
   })
   app.post('/api/auth/register', (req,res) => {
+    if (persistent) return error(res, 409, 'Usa Firebase Authentication para registrarte.')
     const { name='', email='', password='', role='client' } = req.body || {}
     if (String(name).trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) return error(res,400,'Ingresa nombre y correo válido.')
     if (String(password).length < 8) return error(res,400,'La contraseña debe tener al menos 8 caracteres.')
@@ -93,9 +115,30 @@ export function createApp(store = createSeedStore()) {
     store.sessions.set(token,user.id)
     res.status(201).json({ token, user:safeUser(user) })
   })
-  app.post('/api/auth/logout', auth, (req,res) => { store.sessions.delete(req.headers.authorization.replace(/^Bearer\s+/i,''));res.status(204).end() })
+  app.post('/api/auth/logout', auth, (req,res) => { if (!persistent) store.sessions.delete(req.headers.authorization.replace(/^Bearer\s+/i,'')); res.status(204).end() })
+  // Identidad única: un token Firebase verificado representa al mismo usuario en TODOS los endpoints.
+  app.post('/api/account', async (req, res, next) => {
+    if (!persistent) return error(res, 409, 'Disponible al configurar Firebase + MongoDB.')
+    try {
+      const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+      if (!bearer) return error(res, 401, 'Se requiere un token Firebase.')
+      const identity = await options.verifyIdToken(bearer)
+      const { name, role } = req.body || {}
+      if (typeof name !== 'string' || name.trim().length < 2 || name.length > 100) return error(res, 400, 'Nombre inválido.')
+      if (!['client','instructor'].includes(role)) return error(res, 400, 'Tipo de cuenta inválido.')
+      if (!identity.email) return error(res, 400, 'Tu cuenta necesita un correo electrónico.')
+      let user = store.users.find(u => u.id === identity.uid)
+      if (!user) {
+        user = { id: identity.uid, name: name.trim(), email: identity.email,
+          role, preferences: { interests: [], budget: 100, district: 'Miraflores', day: '' }, favorites: [] }
+        await persist('users', user)
+        store.users.push(user)
+      }
+      res.json({ user: safeUser(user) })
+    } catch (e) { return error(res, 401, 'Token Firebase inválido o error guardando el perfil.') }
+  })
   app.get('/api/auth/me', auth, (req,res) => res.json({user:safeUser(req.user)}))
-  app.patch('/api/me', auth, (req,res) => {
+  app.patch('/api/me', auth, async (req,res,next) => {
     const { name, preferences } = req.body || {}
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length < 2) return error(res,400,'Nombre inválido.')
@@ -107,12 +150,15 @@ export function createApp(store = createSeedStore()) {
       if (!Array.isArray(interests) || !interests.every(c => categories.includes(c)) || !within(Number(budget),0,9999) || !districts[district] || !['','sábado','domingo','lunes','martes','miércoles','jueves','viernes'].includes(day)) return error(res,400,'Revisa las preferencias ingresadas.')
       req.user.preferences = { interests, budget:Number(budget), district, day }
     }
+    await persist('users', req.user)
     res.json({ user:safeUser(req.user) })
   })
 
   app.get('/api/workshops', (req,res) => {
-    const { q='', category='', district='', maxPrice='', day='', near='', radiusKm='15' } = req.query
+    const { q='', category='', district='', maxPrice='', day='', near='', lat='', lon='', radiusKm='15' } = req.query
     let list = store.workshops.filter(w => w.published).map(w => enrich(store,w))
+    // Agotados ocultos salvo cuando el usuario escribe el nombre exacto del taller.
+    list = list.filter(w => w.available > 0 || (q && normalize(w.title) === normalize(q)))
     if (q) list = list.filter(w => normalize([w.title,w.summary,w.description,w.category].join(' ')).includes(normalize(q)))
     if (category && category !== 'Todos') list = list.filter(w => w.category === category)
     if (district) list = list.filter(w => w.district === district)
@@ -121,16 +167,23 @@ export function createApp(store = createSeedStore()) {
       const names=['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
       return names[new Date(`${w.date}T12:00:00Z`).getUTCDay()] === normalize(day)
     })
-    if (near && districts[near]) {
+    if (lat !== '' || lon !== '') {
+      const a=Number(lat), b=Number(lon),maxKm=Number(radiusKm)
+      if(!within(a,-90,90)||!within(b,-180,180))return error(res,400,'Coordenadas GPS no válidas.')
+      list=list.map(w=>({...w,distanceKm:round(distanceKm([a,b],districts[w.district]))})).filter(w=>w.distanceKm<=(within(maxKm,1,100)?maxKm:15)).sort((x,y)=>x.distanceKm-y.distanceKm)
+    } else if (near && districts[near]) {
       const maxKm = Number(radiusKm)
       list = list.map(w => ({ ...w, distanceKm:round(distanceKm(districts[near],districts[w.district])) })).filter(w => w.distanceKm <= (within(maxKm,1,100) ? maxKm : 15)).sort((a,b)=>a.distanceKm-b.distanceKm)
     }
     res.json({ items:list, count:list.length })
   })
-  app.get('/api/recommendations', (req,res) => {
-    const user = getAuth(req,store)
+  app.get('/api/recommendations', async (req,res) => {
+    let user = getAuth(req,store)
+    if (persistent && req.headers.authorization) {
+      try { const decoded = await options.verifyIdToken(String(req.headers.authorization).replace(/^Bearer\s+/i,'')); user = store.users.find(u=>u.id===decoded.uid) } catch { user = null }
+    }
     const pref = user?.preferences || { interests:['Arte'], district:'Miraflores', budget:80 }
-    const list = store.workshops.filter(w => w.published).map(w => {
+    const list = store.workshops.filter(w => w.published && w.capacity > seatsBooked(store,w.id)).map(w => {
       let score=0
       if (pref.interests?.includes(w.category)) score+=4
       if (w.price <= (pref.budget||100)) score+=2
@@ -149,7 +202,7 @@ export function createApp(store = createSeedStore()) {
     if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
     res.json({ items:feedback(store,req.params.id).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)) })
   })
-  app.post('/api/workshops/:id/reviews', auth, (req,res) => {
+  app.post('/api/workshops/:id/reviews', auth, async (req,res) => {
     if (req.user.role !== 'client') return error(res,403,'Solo los participantes pueden valorar.')
     if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
     const { stars, comment } = req.body || {}
@@ -158,47 +211,67 @@ export function createApp(store = createSeedStore()) {
     const existing = store.reviews.find(r => r.workshopId===req.params.id && r.userId===req.user.id)
     if (existing) {
       Object.assign(existing,{stars:Number(stars),comment:comment.trim(),createdAt:new Date().toISOString()})
+      await persist('reviews', existing)
       return res.json({item:existing})
     }
     const review = { id:randomUUID(), workshopId:req.params.id, userId:req.user.id, name:req.user.name, stars:Number(stars), comment:comment.trim(), createdAt:new Date().toISOString() }
     store.reviews.push(review)
+    await persist('reviews', review)
     res.status(201).json({item:review})
   })
 
   app.get('/api/me/favorites', auth, (req,res) => res.json({items:req.user.favorites.map(id => publicWorkshop(store,id)).filter(Boolean)}))
-  app.post('/api/me/favorites/:id', auth, (req,res) => {
+  app.post('/api/me/favorites/:id', auth, async (req,res) => {
     if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
     if (!req.user.favorites.includes(req.params.id)) req.user.favorites.push(req.params.id)
+    await persist('users', req.user)
     res.json({ favorites:req.user.favorites })
   })
-  app.delete('/api/me/favorites/:id', auth, (req,res) => {
+  app.delete('/api/me/favorites/:id', auth, async (req,res) => {
     req.user.favorites = req.user.favorites.filter(id => id !== req.params.id)
+    await persist('users', req.user)
     res.json({favorites:req.user.favorites})
   })
   app.get('/api/me/bookings', auth, (req,res) => res.json({items:store.bookings.filter(b=>b.userId===req.user.id).map(b=>({...b,workshop:publicWorkshop(store,b.workshopId)})).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))}))
-  app.post('/api/workshops/:id/bookings', auth, (req,res) => {
+  app.post('/api/workshops/:id/bookings', auth, async (req,res) => {
     if (req.user.role !== 'client') return error(res,403,'Solo los clientes pueden reservar talleres.')
-    const w = store.workshops.find(w=>w.id===req.params.id && w.published)
-    if (!w) return error(res,404,'Taller no encontrado.')
     const seats=Number(req.body?.seats ?? 1)
     if (!Number.isInteger(seats) || !within(seats,1,10)) return error(res,400,'Selecciona entre 1 y 10 cupos.')
-    // La validación y el registro son síncronos en esta demo de un único proceso Node.js.
-    if (seats > w.capacity - seatsBooked(store,w.id)) return error(res,409,'No quedan suficientes cupos disponibles.')
-    const booking={ id:randomUUID(), workshopId:w.id, userId:req.user.id, seats, status:'confirmada', createdAt:new Date().toISOString() }
-    store.bookings.push(booking)
-    res.status(201).json({item:booking,workshop:enrich(store,w)})
+    // Serializado dentro de un único backend para impedir sobreventa durante escrituras async.
+    // Una futura implementación distribuida debe usar transacciones MongoDB.
+    return reserveSerially(async()=>{
+      const w=store.workshops.find(w=>w.id===req.params.id && w.published)
+      if (!w) return error(res,404,'Taller no encontrado.')
+      if (seats > w.capacity - seatsBooked(store,w.id)) return error(res,409,'No quedan suficientes cupos disponibles.')
+      const booking={id:randomUUID(),workshopId:w.id,userId:req.user.id,seats,status:'confirmada',createdAt:new Date().toISOString()}
+      await persist('bookings',booking)
+      store.bookings.push(booking)
+      return res.status(201).json({item:booking,workshop:enrich(store,w)})
+    })
   })
 
   app.get('/api/instructor/workshops', instructor, (req,res) => res.json({items:store.workshops.filter(w => w.instructorId===req.user.id).map(w => enrich(store,w))}))
-  app.post('/api/instructor/workshops', instructor, (req,res) => {
+  app.post('/api/instructor/workshops', instructor, async (req,res) => {
     const msg=validateWorkshop(req.body || {})
     if (msg) return error(res,400,msg)
     const p=req.body
     const w={ id:randomUUID(), instructorId:req.user.id, published:true, currency:'PEN', ...Object.fromEntries(['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image'].map(k=>[k,p[k].trim()])), price:Number(p.price), capacity:Number(p.capacity) }
-    store.workshops.push(w)
-    res.status(201).json({item:enrich(store,w)})
+    // Sesiones recurrentes semanales: instancias independientes con sus propios cupos.
+    const count = p.recurrence === 'weekly' ? Number(p.repeatCount || 1) : 1
+    if (!Number.isInteger(count) || count < 1 || count > 8) return error(res,400,'Máximo 8 sesiones semanales.')
+    if (p.recurrence && !['once','weekly'].includes(p.recurrence)) return error(res,400,'Recurrencia inválida.')
+    const seriesId = count > 1 ? randomUUID() : null
+    const created=[]
+    for (let i=0;i<count;i++) {
+      const session={...w, id: i ? randomUUID() : w.id, recurrenceGroupId: seriesId, recurrence: count>1?'weekly':'once', repeatCount:count}
+      if (i) { const day=new Date(`${w.date}T12:00:00Z`); day.setUTCDate(day.getUTCDate()+i*7); session.date=day.toISOString().slice(0,10) }
+      await persist('workshops', session)
+      store.workshops.push(session)
+      created.push(session)
+    }
+    res.status(201).json({item:enrich(store,w),createdCount:created.length})
   })
-  app.put('/api/instructor/workshops/:id', instructor, (req,res) => {
+  app.put('/api/instructor/workshops/:id', instructor, async (req,res) => {
     const w=store.workshops.find(w => w.id===req.params.id && w.instructorId===req.user.id)
     if (!w) return error(res,404,'No existe el taller o no te pertenece.')
     const payload={...w,...req.body}
@@ -206,12 +279,14 @@ export function createApp(store = createSeedStore()) {
     if (msg) return error(res,400,msg)
     if (Number(payload.capacity) < seatsBooked(store,w.id)) return error(res,409,'No puedes reducir cupos por debajo de las reservas confirmadas.')
     Object.assign(w, Object.fromEntries(['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image'].map(k=>[k,payload[k].trim()])), { price:Number(payload.price),capacity:Number(payload.capacity), published:payload.published !== false })
+    await persist('workshops', w)
     res.json({item:enrich(store,w)})
   })
-  app.delete('/api/instructor/workshops/:id', instructor, (req,res) => {
+  app.delete('/api/instructor/workshops/:id', instructor, async (req,res) => {
     const idx=store.workshops.findIndex(w=>w.id===req.params.id && w.instructorId===req.user.id)
     if (idx<0) return error(res,404,'Taller no encontrado.')
     if (seatsBooked(store,req.params.id)) return error(res,409,'No se puede eliminar un taller con reservas; edítalo o despublícalo.')
+    await removePersisted('workshops', req.params.id)
     store.workshops.splice(idx,1)
     res.status(204).end()
   })
@@ -233,6 +308,31 @@ export function createApp(store = createSeedStore()) {
     res.json({ activeWorkshops:owned.filter(w=>w.published).length, seatsReserved:reserved, capacity:totalSeats, occupancy:totalSeats?Math.round((reserved/totalSeats)*100):0, estimatedGross:owned.reduce((s,w)=>s+w.reserved*w.price,0), averageRating:rs.length?round(rs.reduce((s,r)=>s+r.stars,0)/rs.length):null, reviewCount:rs.length, byWorkshop:owned.map(w=>({id:w.id,title:w.title,reserved:w.reserved,capacity:w.capacity,occupancy:Math.round(w.reserved/w.capacity*100)})) })
   })
 
+  // Perfil público y personalización sencilla del tallerista (sin diseñador arbitrario de HTML).
+  app.get('/api/instructors/:id', (req,res) => {
+    const user=store.users.find(u=>u.id===req.params.id && u.role==='instructor')
+    if (!user) return error(res,404,'Tallerista no encontrado.')
+    res.json({ item: {id:user.id, name:user.name, studio:user.studio||{},
+      workshopCount:store.workshops.filter(w=>w.instructorId===user.id && w.published).length } })
+  })
+  app.patch('/api/instructor/studio', instructor, async (req,res) => {
+    const {displayName='',bio='',link='',accent='terracota',coverImage=''}=req.body||{}
+    if (typeof displayName!=='string'||displayName.length>90 ||typeof bio!=='string'||bio.length>900 ||typeof link!=='string'||link.length>220 || !['terracota','oliva','azul'].includes(accent)) return error(res,400,'Revisa los datos del perfil del tallerista.')
+    if (coverImage && !validImage(coverImage)) return error(res,400,'Selecciona una foto de portada válida.')
+    if (link && !/^https:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9/?#&=_.%~-]*)?$/i.test(link)) return error(res,400,'Introduce un enlace HTTPS válido.')
+    req.user.studio={displayName:displayName.trim(),bio:bio.trim(),link:link.trim(),accent,coverImage}
+    await persist('users',req.user)
+    res.json({item:req.user.studio})
+  })
+  app.post('/api/feedback', auth, async (req,res) => {
+    const {rating,comment,area='general'}=req.body||{}
+    if (!Number.isInteger(Number(rating)) || Number(rating)<1 || Number(rating)>5 || typeof comment!=='string' || comment.trim().length<10 || comment.length>1000 || !['general','busqueda','reserva','tallerista'].includes(area)) return error(res,400,'Califica de 1 a 5 y deja un comentario de 10 a 1000 caracteres.')
+    const item={id:randomUUID(),userId:req.user.id,role:req.user.role,area,rating:Number(rating),comment:comment.trim(),createdAt:new Date().toISOString()}
+    store.feedback ||= []
+    await persist('feedback',item)
+    store.feedback.push(item)
+    res.status(201).json({item:{id:item.id,createdAt:item.createdAt}})
+  })
   app.use('/api', (_req,res) => error(res,404,'Ruta de API no encontrada.'))
   app.use((err,req,res,next) => {
     if (err instanceof SyntaxError && err.status===400) return error(res,400,'El JSON enviado no es válido.')

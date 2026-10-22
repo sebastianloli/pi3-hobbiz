@@ -1,5 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from './views/Home.vue'
+import Account from './views/Account.vue'
+import InstructorStudio from './views/InstructorStudio.vue'
+import Feedback from './views/Feedback.vue'
+import Calendar from './views/Calendar.vue'
 import Explore from './views/Explore.vue'
 import Saved from './views/Saved.vue'
 import Profile from './views/Profile.vue'
@@ -13,6 +17,10 @@ import InstructorReviews from './views/InstructorReviews.vue'
 import FlowGuide from './views/FlowGuide.vue'
 
 const routes = [
+  { path:'/cuenta', component:Account },
+  { path:'/opinion',component:Feedback },
+  { path:'/agenda',component:Calendar },
+  { path:'/tallerista/perfil',component:InstructorStudio,meta:{role:'instructor'} },
   { path:'/', component:Home, meta:{ role:'client' } },
   { path:'/explorar', component:Explore, meta:{ role:'client' } },
   { path:'/guardados', component:Saved, meta:{ role:'client' } },

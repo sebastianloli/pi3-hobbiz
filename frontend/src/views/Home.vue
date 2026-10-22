@@ -5,17 +5,17 @@ import { Search, SlidersHorizontal, ArrowRight, Sparkles, MapPin, Map } from 'lu
 import WorkshopGrid from '../components/WorkshopGrid.vue'
 import SectionHeading from '../components/SectionHeading.vue'
 import { request } from '../lib/api'
-import { notify, state } from '../lib/state'
+import { notify, state, authRequest } from '../lib/state'
 const router=useRouter(),q=ref(''),selectedCategory=ref('Todos'),workshops=ref([]),recommended=ref([]),loading=ref(true)
 const categories=['Todos','Arte','Cocina','Oficios','Bienestar','Otros']
-async function refresh(){try{loading.value=true;const [a,b]=await Promise.all([request('/workshops'),request('/recommendations')]);workshops.value=a.items;recommended.value=b.items}catch(e){notify(e.message)}finally{loading.value=false}}
+async function refresh(){try{loading.value=true;const [a,b]=await Promise.all([request('/workshops'),authRequest('/recommendations')]);workshops.value=a.items;recommended.value=b.items}catch(e){notify(e.message)}finally{loading.value=false}}
 onMounted(refresh)
 const filtered=()=>selectedCategory.value==='Todos'?workshops.value:workshops.value.filter(w=>w.category===selectedCategory.value)
 function search(){router.push({path:'/explorar',query:{q:q.value,category:selectedCategory.value==='Todos'?'':selectedCategory.value}})}
 </script>
 <template>
   <div class="page home">
-    <section class="hero"><div class="eyebrow">TEMPORADA DE OTOÑO · HOBBIZ</div><h1>Aprende algo con tus manos este fin de semana</h1><p>{{workshops.length}} talleres presenciales en Lima, dictados por pequeños talleristas.</p><span class="hero-decoration">✷</span></section>
+    <section class="hero"><div class="eyebrow">TEMPORADA DE PRIMAVERA · HOBBIZ</div><h1>Aprende algo con tus manos este fin de semana</h1><p>{{workshops.length}} talleres presenciales en Lima, dictados por pequeños talleristas.</p><span class="hero-decoration">✷</span></section>
     <div class="search-line"><label class="searchbox"><Search :size="22"/><input v-model="q" type="search" placeholder="¿Qué quieres aprender?" @keyup.enter="search" aria-label="Buscar talleres" /></label><button class="filter-icon" aria-label="Ir a filtros" @click="router.push('/explorar')"><SlidersHorizontal :size="22"/></button></div>
     <div class="category-chips"><button v-for="cat in categories" :key="cat" class="category-chip" :class="{active:selectedCategory===cat}" @click="selectedCategory=cat">{{cat}}</button></div>
     <div class="quick-links"><button class="link-like" @click="router.push('/explorar?near=Miraflores')"><MapPin :size="17"/> Buscar talleres cerca de mí <ArrowRight :size="16"/></button><span class="muted">Selecciona tu distrito y compara opciones próximas</span></div>

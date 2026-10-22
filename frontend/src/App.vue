@@ -11,10 +11,10 @@ const navOwner=[{to:'/tallerista',title:'Resumen',icon:LayoutDashboard},{to:'/ta
 const active=(target)=>route.path===target||target==='/tallerista/talleres' && route.path.includes('/tallerista/editar')
 async function changeRole(next){
   if(switching.value||role.value===next) return
-  try{switching.value=true; await demoLogin(next); await router.push(next==='client'?'/':'/tallerista'); notify(next==='client'?'Vista de cliente activada':'Vista de tallerista activada')}
+  try{switching.value=true; if(state.mode==='firebase-mongo'){await router.push('/cuenta');notify('Para cambiar de rol, inicia sesión con una cuenta del tipo correspondiente.')}else{await demoLogin(next);await router.push(next==='client'?'/':'/tallerista');notify(next==='client'?'Vista de cliente activada':'Vista de tallerista activada')}}
   catch(e){notify(e.message)} finally{ switching.value=false }
 }
-async function resetDemo(){try {await logout();await demoLogin(role.value);notify('Sesión de demostración renovada.')}catch(e){notify(e.message)}}
+async function resetDemo(){try {await logout();if(state.mode==='demo')await demoLogin(role.value);notify('Sesión cerrada.')}catch(e){notify(e.message)}}
 onMounted(initialize)
 </script>
 <template>
@@ -27,7 +27,7 @@ onMounted(initialize)
         </RouterLink>
         <div class="top-actions">
           <div class="role-toggle" aria-label="Modo de uso"><button :disabled="switching" :class="{selected:role==='client'}" @click="changeRole('client')"><GraduationCap :size="17"/> <span>Cliente</span></button><button :disabled="switching" :class="{selected:role==='instructor'}" @click="changeRole('instructor')"><Palette :size="17"/> <span>Tallerista</span></button></div>
-          <RouterLink class="top-pill" to="/guia"><BookOpenText :size="18"/><span>Guía de flujo</span></RouterLink>
+          <RouterLink class="top-pill" to="/cuenta"><UserRound :size="18"/><span>{{state.user ? 'Mi cuenta':'Ingresar'}}</span></RouterLink><RouterLink class="top-pill" to="/guia"><BookOpenText :size="18"/><span>Guía de flujo</span></RouterLink>
           <button class="round-icon" title="Notificaciones: fuera del alcance de esta versión" aria-label="Información sobre notificaciones" @click="notify('Las notificaciones push están fuera del alcance de esta versión.')"><Bell :size="18"/></button>
         </div>
       </div>
