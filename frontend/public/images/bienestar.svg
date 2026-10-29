@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" role="img" aria-label="Taller de bienestar">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4c7a86"/><stop offset="1" stop-color="#9cc3b8"/></linearGradient></defs>
+<rect width="800" height="520" fill="url(#g)"/>
+<circle cx="660" cy="90" r="130" fill="#fff" opacity=".10"/><circle cx="90" cy="470" r="160" fill="#fff" opacity=".08"/>
+<g fill="none" stroke="#fff8ef" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="400" cy="150" r="38"/><path d="M400 200v90M300 380c40-50 70-80 100-90 30 10 60 40 100 90M320 250c30 20 55 30 80 30s50-10 80-30"/></g>
+</svg>

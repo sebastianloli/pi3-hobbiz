@@ -1,6 +1,6 @@
-import { demoLogin, state } from './state'
+import { state } from './state'
+// El acceso por rol lo controla el router; esto solo protege llamadas directas.
 export async function ensureInstructor(){
   if(state.user?.role==='instructor')return
-  if(state.mode==='demo')return demoLogin('instructor')
-  throw new Error('Inicia sesión como tallerista desde Mi cuenta.')
+  throw new Error('Inicia sesión con una cuenta de tallerista desde Mi cuenta.')
 }

@@ -9,4 +9,5 @@ dist/
 # Credenciales de backend: nunca subirlas al repositorio
 *service-account*.json
 *firebase-adminsdk*.json
-backend/credentials/
+backend/credentials/*
+!backend/credentials/LEEME.txt

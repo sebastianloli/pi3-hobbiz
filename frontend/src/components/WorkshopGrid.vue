@@ -1,17 +1,11 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { request } from '../lib/api'
-import { state, authRequest, notify } from '../lib/state'
+import { onMounted } from 'vue'
+import { state, refreshFavorites } from '../lib/state'
 import WorkshopCard from './WorkshopCard.vue'
-const props=defineProps({ items:{type:Array,default:()=>[]}, showCapacity:{type:Boolean,default:false} })
-const favoriteIds=ref([])
+const props=defineProps({ items:{type:Array,default:()=>[]}, showCapacity:{type:Boolean,default:false}, showDistance:{type:Boolean,default:false} })
 const emit=defineEmits(['favorite-changed'])
-async function refresh(){
-  try { const r=await authRequest('/me/favorites');favoriteIds.value=r.items.map(w=>w.id) }catch { favoriteIds.value=[] }
-}
-onMounted(refresh)
-watch(()=>state.user?.id,refresh)
+onMounted(()=>{ if(state.user?.role==='client' && !state.favoriteIds.length) refreshFavorites() })
 </script>
 <template>
-  <div class="workshop-grid"><WorkshopCard v-for="w in items" :key="w.id" :workshop="w" :favorite="favoriteIds.includes(w.id)" :show-capacity="showCapacity" @favorite-changed="(id)=>{ refresh(); emit('favorite-changed',id) }" /></div>
+  <div class="workshop-grid"><WorkshopCard v-for="w in items" :key="w.id" :workshop="w" :favorite="state.favoriteIds.includes(w.id)" :show-capacity="showCapacity" :show-distance="showDistance" @favorite-changed="(id)=>emit('favorite-changed',id)" /></div>
 </template>

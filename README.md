@@ -1,8 +1,8 @@
 # Hobbiz — MVP integrado (cliente + tallerista)
 
-Prototipo universitario para conectar a personas que buscan talleres recreativos en Lima con pequeños talleristas. Desarrollo sobre el MVP de `main`, incorporando la propuesta de `rama_santiago` (**MongoDB Atlas + Firebase Authentication**) y unificando el flujo de cliente y tallerista. Este ZIP es una **entrega de integración**, no un cambio aplicado al repositorio GitHub.
+Prototipo universitario para conectar a personas que buscan talleres recreativos en **Miraflores y Barranco** (Lima) con pequeños talleristas. Desarrollo sobre el MVP de `main`, incorporando la propuesta de `rama_santiago` (**MongoDB Atlas + Firebase Authentication**) y unificando el flujo de cliente y tallerista. Este ZIP es una **entrega de integración**, no un cambio aplicado al repositorio GitHub.
 
-**Stack:** Vue 3, Vue Router, Vite, Node.js, Express 5, Firebase Auth (opcional), MongoDB Atlas (opcional). Fotos y contenido del catálogo: ilustrativos.
+**Stack:** Vue 3, Vue Router, Vite, Leaflet + OpenStreetMap (mapa gratuito, sin API key), Node.js, Express 5, Firebase Auth (opcional), MongoDB Atlas (opcional). El catálogo incluye 24 talleres reales de Miraflores y Barranco ([fuentes](docs/TALLERES_FUENTES.md)), con sesiones de ejemplo, y 3 talleres de la cuenta demo.
 
 ## 1. Ejecutar de inmediato en VS Code (sin credenciales externas)
 
@@ -17,7 +17,8 @@ npm run dev
 - API: http://127.0.0.1:3001/api/health
 - `npm run dev` inicia frontend y backend simultáneamente.
 - Modo predeterminado `demo`: datos temporales en memoria. Se reinician al cerrar el backend.
-- Cuentas demo: `cliente@hobbiz.pe` / `Demo12345!` y `tallerista@hobbiz.pe` / `Demo12345!`.
+- **Hay que iniciar sesión para usar la plataforma.** En la pantalla de ingreso hay botones que rellenan las cuentas demo: `cliente@hobbiz.pe` / `Demo12345!` y `tallerista@hobbiz.pe` / `Demo12345!`.
+- Marca **Recordarme** para mantener la sesión hasta 30 días; sin marcarla, se cierra al cerrar la pestaña.
 - Si se ejecuta en una red pública, **no expongas el modo demo**: es deliberadamente inseguro y solo para pruebas locales.
 
 ## 2. Activar implementación de Santiago: Firebase + MongoDB
@@ -36,23 +37,26 @@ La integración ahora utiliza **un solo sistema de identidad por modo**. En `fir
 
 ## 3. Funciones actuales
 
+### Acceso
+- Inicio de sesión **obligatorio**: todas las rutas, salvo `/cuenta`, y todos los endpoints de datos exigen sesión.
+- Clientes y talleristas solo ven las secciones de su rol.
+- **Recordarme**: con la casilla, `localStorage` y token de 30 días (o `browserLocalPersistence` en Firebase); sin ella, `sessionStorage` y 8 horas. También recuerda el último correo usado.
+
 ### Cliente
-- Catálogo centralizado y búsqueda por palabra, categoría, distrito, presupuesto y día.
-- "Cerca de mí": selecciona distrito de referencia o autoriza una ubicación GPS puntual; usa radio de 3 a 25 km. Distancia aproximada al centro de los distritos de los talleres (sin Google Maps). Las coordenadas del usuario no se almacenan.
-- Talleres agotados se ocultan del catálogo salvo búsqueda del **nombre exacto**; se sigue viendo su ficha si se tiene el enlace.
-- Ficha con descripción, fotos, local, dirección, nivel, materiales, precio, horario, cupos y reseñas.
-- Perfil y preferencias, guardados, reservas simuladas y valoración 1-5 con comentario, después de una reserva.
-- Agenda mensual de reservas y aviso **dentro de la web** cuando una sesión empieza en menos de 48h.
-- Sugerencias por reglas simples en Inicio (sin IA).
-- Formulario de opinión para validar el prototipo.
+- Catálogo de talleres de Miraflores y Barranco con nombre, categoría, local, dirección, precio, fecha y horario.
+- **Búsqueda manual** (`/explorar`): texto, categoría, distrito, precio máximo, día y horario (mañana, tarde o noche). Vista de lista o de **mapa**.
+- **Cerca de mí** (`/cerca`, apartado separado): GPS del navegador, toque en el mapa o centro del distrito; radio de 500 m a 5 km; distancias reales hasta el pin de cada taller.
+- Ficha con mapa de ubicación, enlace "Cómo llegar", materiales, nivel, cupos, reseñas y perfil del tallerista.
+- Los talleres agotados se ocultan salvo búsqueda del **nombre exacto**, y entonces se indica que no hay cupos.
+- Guardados con marcador, preferencias, reserva simulada con confirmación y reseñas de 1 a 5 con promedio automático.
+- Formulario de opinión (`/opinion`): facilidad de uso, opinión sobre las nuevas funciones, qué fue confuso y recomendación o crítica. Las respuestas se guardan en la colección `feedback` de MongoDB (en modo demo, solo en memoria) y el equipo las revisa desde Atlas, por ejemplo exportándolas a CSV con Compass.
 
 ### Tallerista
-- Panel de talleres activos, ocupación, cupos, ingresos **estimados, no cobrados**, calificaciones.
-- Crear/editar/ocultar/publicar/eliminar un taller; validación de todos los campos obligatorios en frontend y backend.
-- Duplicar talleres para otra fecha.
-- Publicar serie **semanal** de hasta ocho sesiones independientes y controlar cupos por sesión.
-- Ver inscritos, agenda y reseñas.
-- Perfil público: nombre del estudio, biografía, foto de portada, enlace HTTPS y paleta visual predefinida.
+- Panel con talleres activos, cupos, ocupación, **monto recaudado estimado por taller** y calificaciones.
+- Crear, editar, ocultar o eliminar talleres; fecha única o serie semanal; **abrir o cerrar inscripciones**.
+- Ubicación con **pin en el mapa**, validado dentro de Miraflores o Barranco, y búsqueda de dirección gratuita (Nominatim).
+- Personalización del perfil: cuestionario de estética, colores (incluido un color propio), tipografía, distribución, portada, galería y enlaces (web, Instagram, Facebook, TikTok y WhatsApp). Página pública en `/estudio/:id`.
+- Lista de inscritos, agenda y reseñas.
 
 ## 4. Comandos
 
@@ -72,7 +76,7 @@ npm test                    # pruebas de API, roles, reservas, recurrencias
 - El almacenamiento MongoDB mantiene una **copia en memoria por proceso** para responder al catálogo; está pensado para **una instancia única de Express**. La cola de reservas evita sobreventa dentro de ese único proceso, pero para múltiples réplicas hay que reemplazarla por transacciones/actualizaciones atómicas MongoDB, relecturas y mecanismos de consistencia. No es un backend listo para Internet/producción.
 - El modo demo tiene acceso a cuentas fijas, por eso solo es adecuado para desarrollo local.
 - Las recomendaciones son basadas en reglas de intereses, zona y precio; no usan aprendizaje automático.
-- El mapa completo con puntos georreferenciados y Google Maps se considera etapa posterior. "Cerca de mí" permite GPS puntual del usuario, pero calcula la distancia a centroides de distritos de talleres.
+- Mapa con Leaflet y teselas de OpenStreetMap: gratuito y sin clave, siempre que se cite OpenStreetMap. Para un uso intensivo conviene un proveedor de teselas propio (MapTiler o Stadia, con plan gratuito). Google Maps exige una cuenta con facturación y una API key; se puede cambiar en `MapView.vue`. 9 de los 24 talleres reales no tienen dirección pública: su pin es aproximado y así se indica en la ficha.
 - Las sesiones recurrentes se generan como publicaciones independientes cada siete días; no existe todavía un editor masivo de series.
 - El perfil configurable admite una biografía, nombre, portada, enlace HTTPS y tres temas predefinidos; no admite estilos personalizados arbitrarios por seguridad.
 - Si quieres filtrar por horario exacto y no solo día de semana, deberás ampliar la API.
@@ -80,6 +84,10 @@ npm test                    # pruebas de API, roles, reservas, recurrencias
 ## 6. Requisitos, checklist y pruebas
 
 - Requisitos y estado: [`docs/CHECKLIST_EPYC.md`](docs/CHECKLIST_EPYC.md).
+- Base de datos, cuentas de talleristas y "Recordarme": [`docs/BASE_DE_DATOS.md`](docs/BASE_DE_DATOS.md).
+- Talleres reales y fuentes: [`docs/TALLERES_FUENTES.md`](docs/TALLERES_FUENTES.md).
+- Integración de la rama de Santiago: [`docs/INTEGRACION_SANTIAGO.md`](docs/INTEGRACION_SANTIAGO.md).
+- Diagnóstico de la conexión real: `npm run db:check`.
 - Pruebas manuales: [`docs/PRUEBAS_MANUALES.md`](docs/PRUEBAS_MANUALES.md).
 - Los tests de Firebase usan un **verificador simulado de tokens** y un guardado simulado, no conexiones de pago/Atlas. La prueba de integración real de Firebase/Mongo debe ejecutarse con servicios autorizados.
 

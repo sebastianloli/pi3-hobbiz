@@ -10,6 +10,6 @@ export async function request(path, { method = 'GET', body, token } = {}) {
   }
   if (response.status === 204) return null
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.error || `Error HTTP ${response.status}`)
+  if (!response.ok) throw Object.assign(new Error(data.error || `Error HTTP ${response.status}`), { status: response.status })
   return data
 }

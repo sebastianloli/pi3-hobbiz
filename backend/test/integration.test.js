@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createApp} from '../src/app.js'
 import {createSeedStore} from '../src/data.js'
+const future=(days)=>{const d=new Date(Date.now()+days*86400000);return d.toISOString().slice(0,10)}
 
 async function withApi(options,fn){
   const server=createApp(options.store||createSeedStore(),options.appOptions||{}).listen(0,'127.0.0.1')
@@ -17,8 +18,8 @@ const instructor=api=>api('/auth/login',{method:'POST',body:{email:'tallerista@h
 
 function validWorkshop(){return {
   title:'Linograbado y estampas',summary:'Aprende a estampar diseños.',description:'Diseña y talla tu propio sello para crear piezas artísticas.',
-  category:'Arte',district:'Pueblo Libre',venue:'Estudio Meza',address:'Av. Sucre 500',
-  date:'2026-11-21',startsAt:'14:00',endsAt:'17:00',capacity:8,price:60,
+  category:'Arte',district:'Miraflores',venue:'Estudio Meza',address:'Calle Bolognesi 300, Miraflores',lat:-12.1262,lon:-77.0281,
+  date:future(30),startsAt:'14:00',endsAt:'17:00',capacity:8,price:60,
   level:'Principiante',materialsIncluded:'Tinta y planchas',materialsBring:'Mandil',image:'/images/arte.jpg'
 }}
 
@@ -29,9 +30,10 @@ test('oculta talleres agotados salvo búsqueda por nombre exacto',async()=>withA
   assert.equal(r.status,201)
   const client=(await api('/auth/login',{method:'POST',body:{email:'cliente@hobbiz.pe',password:'Demo12345!'}})).data.token
   assert.equal((await api(`/workshops/${r.data.item.id}/bookings`,{method:'POST',token:client,body:{seats:1}})).status,201)
-  const catalog=(await api('/workshops')).data.items
+  const catalog=(await api('/workshops',{token:client})).data.items
   assert.equal(catalog.some(x=>x.id===r.data.item.id),false)
-  const exact=(await api('/workshops?q=Linograbado%20y%20estampas')).data.items
+  assert.equal((await api('/workshops?q=Linograbado',{token:client})).data.items.some(x=>x.id===r.data.item.id),false)
+  const exact=(await api('/workshops?q=Linograbado%20y%20estampas',{token:client})).data.items
   assert.equal(exact.find(x=>x.id===r.data.item.id).available,0)
 }))
 
@@ -41,7 +43,7 @@ test('publicación recurrente genera instancias por semana y cupos propios',asyn
   assert.equal(response.status,201)
   assert.equal(response.data.createdCount,3)
   const list=(await api('/instructor/workshops',{token})).data.items.filter(w=>w.recurrenceGroupId)
-  assert.deepEqual(list.map(w=>w.date),['2026-11-21','2026-11-28','2026-12-05'])
+  assert.deepEqual(list.map(w=>w.date),[0,7,14].map(n=>{const d=new Date(`${future(30)}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}))
   assert.ok(new Set(list.map(w=>w.id)).size===3)
 }))
 
@@ -49,10 +51,21 @@ test('perfil público y feedback se validan y registran',async()=>withApi({},asy
   const token=(await instructor(api)).data.token
   const studio=await api('/instructor/studio',{method:'PATCH',token,body:{displayName:'Estudio Meza',bio:'Grabado original',link:'https://ejemplo.pe',accent:'oliva'}})
   assert.equal(studio.status,200)
-  const listing=(await api('/workshops/t-1')).data.item
+  const listing=(await api('/workshops/t-1',{token})).data.item
   assert.equal(listing.instructorName,'Estudio Meza')
   const denied=await api('/instructor/studio',{method:'PATCH',token,body:{displayName:'E',bio:'x',link:'javascript:alert(1)',accent:'oliva'}})
   assert.equal(denied.status,400)
+  const full=await api('/instructor/studio',{method:'PATCH',token,body:{displayName:'Estudio Meza',tagline:'Grabado frente al mar',bio:'Grabado original',accent:'ciruela',accentColor:'#123ABC',font:'clasica',layout:'galeria',coverImage:'/images/arte.jpg',gallery:['/images/arte.jpg','https://ejemplo.pe/foto.jpg'],district:'Barranco',address:'Jr. Unión 100',links:{instagram:'https://www.instagram.com/estudiomeza/',whatsapp:'https://wa.me/51999999999'}}})
+  assert.equal(full.status,200)
+  assert.equal(full.data.item.accentColor,'#123abc')
+  assert.equal(full.data.item.links.instagram,'https://www.instagram.com/estudiomeza/')
+  for (const bad of [{accentColor:'red'},{font:'comic'},{layout:'x'},{links:{instagram:'http://x.pe'}},{links:{otro:'https://x.pe'}},{gallery:Array(7).fill('/images/arte.jpg')},{district:'Lince'},{coverImage:'javascript:alert(1)'}])
+    assert.equal((await api('/instructor/studio',{method:'PATCH',token,body:{displayName:'Estudio Meza',...bad}})).status,400,JSON.stringify(bad))
+  const pub=(await api('/instructors/tallerista-1',{token})).data.item
+  assert.equal(pub.studio.layout,'galeria')
+  assert.equal(pub.workshops.length,3)
+  const venue=(await api('/instructors/venue-mundodebarro',{token})).data.item
+  assert.equal(venue.studio.links.instagram,'https://www.instagram.com/mundodebarro/')
   const fb=await api('/feedback',{method:'POST',token,body:{rating:5,area:'general',comment:'La navegación es clara'}})
   assert.equal(fb.status,201)
 }))
