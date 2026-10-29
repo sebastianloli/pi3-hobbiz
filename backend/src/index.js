@@ -15,7 +15,13 @@ try {
     const verifyIdToken=createFirebaseVerifier()
     mongo=await openMongoStore()
     store=mongo.store
-    options={mode, verifyIdToken, persistOne:mongo.persistOne, removeOne:mongo.removeOne}
+    options = {
+      mode,
+      verifyIdToken,
+      persistOne: mongo.persistOne,
+      persistMany: mongo.persistMany,
+      removeOne: mongo.removeOne
+    };
   } else if (mode!=='demo') throw new Error('HOBBIZ_MODE debe ser demo o firebase-mongo')
   const app=store?createApp(store,options):createApp()
   const server=app.listen(port,'127.0.0.1',()=>{

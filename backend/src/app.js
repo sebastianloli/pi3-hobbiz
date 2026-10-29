@@ -14,6 +14,16 @@ const enrich = (store, workshop) => {
   const taken = seatsBooked(store, workshop.id)
   return { ...workshop, reserved: taken, available: Math.max(0, workshop.capacity - taken), rating: reviews.length ? round(reviews.reduce((s,v)=>s+v.stars,0)/reviews.length) : null, reviewCount: reviews.length, instructorName: store.users.find(u => u.id===workshop.instructorId)?.studio?.displayName || store.users.find(u => u.id===workshop.instructorId)?.name || 'Tallerista de Hobbiz', instructorStudio:store.users.find(u=>u.id===workshop.instructorId)?.studio || null }
 }
+function workshopLocation(workshop) {
+  if (
+    within(workshop.latitude, -90, 90) &&
+    within(workshop.longitude, -180, 180)
+  ) {
+    return [workshop.latitude, workshop.longitude];
+  }
+
+  return districts[workshop.district];
+}
 const distanceKm = (a,b) => {
   const radians = v => (v*Math.PI)/180
   const dlat = radians(b[0]-a[0]), dlon=radians(b[1]-a[1])
@@ -54,6 +64,22 @@ function validImage(source) {
   if (/^\/images\/[a-z0-9-]+\.jpg$/i.test(source)) return imageNames.includes(source.split('/').at(-1))
   return /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(source) && source.length < 1_600_000
 }
+function isValidDate(value) {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const date = new Date(`${value}T12:00:00Z`);
+
+  if (!Number.isFinite(date.getTime())) {
+    return false;
+  }
+
+  return date.toISOString().slice(0, 10) === value;
+}
 function validateWorkshop(p) {
   const required = ['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image']
   for (const field of required) if (typeof p[field] !== 'string' || !p[field].trim()) return `Completa el campo obligatorio: ${field}.`
@@ -61,8 +87,17 @@ function validateWorkshop(p) {
   if (!districts[p.district]) return 'Selecciona un distrito válido.'
   if (!within(Number(p.price), 0, 9999)) return 'El precio debe ser un número entre 0 y 9999.'
   if (!Number.isInteger(Number(p.capacity)) || !within(Number(p.capacity), 1, 1000)) return 'Los cupos deben ser un entero entre 1 y 1000.'
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date) || Number.isNaN(Date.parse(p.date))) return 'La fecha no es válida.'
+  if (!isValidDate(p.date)) {return 'Selecciona una fecha que exista.';}  
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(p.startsAt) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(p.endsAt) || p.startsAt >= p.endsAt) return 'Indica un horario válido.'
+  if (
+  (p.latitude != null || p.longitude != null) &&
+  (
+    !within(p.latitude, -90, 90) ||
+    !within(p.longitude, -180, 180)
+  )
+) {
+  return 'Completa la latitud y la longitud con números válidos.';
+}
   if (!validImage(p.image)) return 'Selecciona una foto válida (galería o JPG/PNG/WebP de hasta 1 MB).'
   return null
 }
@@ -87,6 +122,42 @@ export function createApp(store = createSeedStore(), options = {}) {
   app.disable('x-powered-by')
   app.use(cors({ origin: process.env.CORS_ORIGIN || (persistent ? 'http://localhost:5173' : true) }))
   app.use(express.json({ limit: '2mb' }))
+  let mutationTail = Promise.resolve();
+  app.use('/api', (req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      return next();
+    }
+
+    const previous = mutationTail;
+    let release;
+
+    mutationTail = new Promise(resolve => {
+      release = resolve;
+    });
+
+    previous.then(() => {
+      let released = false;
+
+      const finish = () => {
+        if (!released) {
+          released = true;
+          release();
+        }
+      };
+
+      const originalEnd = res.end.bind(res);
+
+      res.end = (...args) => {
+        try {
+          return originalEnd(...args);
+        } finally {
+          finish();
+        }
+      };
+
+      next();
+    }).catch(next);
+  });
   const auth = requireAuth(store, undefined, options)
   const instructor = requireAuth(store, 'instructor', options)
 
@@ -138,22 +209,81 @@ export function createApp(store = createSeedStore(), options = {}) {
     } catch (e) { return error(res, 401, 'Token Firebase inválido o error guardando el perfil.') }
   })
   app.get('/api/auth/me', auth, (req,res) => res.json({user:safeUser(req.user)}))
-  app.patch('/api/me', auth, async (req,res,next) => {
-    const { name, preferences } = req.body || {}
-    if (name !== undefined) {
-      if (typeof name !== 'string' || name.trim().length < 2) return error(res,400,'Nombre inválido.')
-      req.user.name = name.trim()
-    }
-    if (preferences !== undefined) {
-      if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return error(res,400,'Preferencias inválidas.')
-      const { interests=[], budget=100, district='Miraflores', day='' } = preferences
-      if (!Array.isArray(interests) || !interests.every(c => categories.includes(c)) || !within(Number(budget),0,9999) || !districts[district] || !['','sábado','domingo','lunes','martes','miércoles','jueves','viernes'].includes(day)) return error(res,400,'Revisa las preferencias ingresadas.')
-      req.user.preferences = { interests, budget:Number(budget), district, day }
-    }
-    await persist('users', req.user)
-    res.json({ user:safeUser(req.user) })
-  })
+  app.patch('/api/me', auth, async (req, res, next) => {
+    try {
+      const { name, preferences } = req.body || {};
+      const updated = { ...req.user };
 
+      if (name !== undefined) {
+        if (
+          typeof name !== 'string' ||
+          name.trim().length < 2 ||
+          name.trim().length > 100
+        ) {
+          return error(
+            res,
+            400,
+            'Escribe un nombre de entre 2 y 100 caracteres.'
+          );
+        }
+
+        updated.name = name.trim();
+      }
+
+      if (preferences !== undefined) {
+        if (
+          !preferences ||
+          typeof preferences !== 'object' ||
+          Array.isArray(preferences)
+        ) {
+          return error(res, 400, 'Preferencias inválidas.');
+        }
+
+        const {
+          interests = [],
+          budget = 100,
+          district = 'Miraflores',
+          day = ''
+        } = preferences;
+
+        const days = [
+          '',
+          'lunes',
+          'martes',
+          'miércoles',
+          'jueves',
+          'viernes',
+          'sábado',
+          'domingo'
+        ];
+
+        if (
+          !Array.isArray(interests) ||
+          !interests.every(category => categories.includes(category)) ||
+          !within(Number(budget), 0, 9999) ||
+          !Object.hasOwn(districts, district) ||
+          !days.includes(day)
+        ) {
+          return error(res, 400, 'Revisa las preferencias ingresadas.');
+        }
+
+        updated.preferences = {
+          interests,
+          budget: Number(budget),
+          district,
+          day
+        };
+      }
+
+      await persist('users', updated);
+
+      Object.assign(req.user, updated);
+
+      res.json({ user: safeUser(req.user) });
+    } catch (err) {
+      next(err);
+    }
+  });
   app.get('/api/workshops', (req,res) => {
     const { q='', category='', district='', maxPrice='', day='', near='', lat='', lon='', radiusKm='15' } = req.query
     let list = store.workshops.filter(w => w.published).map(w => enrich(store,w))
@@ -167,13 +297,48 @@ export function createApp(store = createSeedStore(), options = {}) {
       const names=['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
       return names[new Date(`${w.date}T12:00:00Z`).getUTCDay()] === normalize(day)
     })
+    const {
+      startsAfter = '',
+      endsBefore = ''
+    } = req.query;
+
+    const validTime = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+    if (
+      typeof startsAfter !== 'string' ||
+      typeof endsBefore !== 'string' ||
+      (startsAfter && !validTime.test(startsAfter)) ||
+      (endsBefore && !validTime.test(endsBefore))
+    ) {
+      return error(res, 400, 'Revisa las horas seleccionadas.');
+    }
+
+    if (startsAfter && endsBefore && startsAfter >= endsBefore) {
+      return error(
+        res,
+        400,
+        'La hora inicial debe ser anterior a la hora final.'
+      );
+    }
+
+    if (startsAfter) {
+      list = list.filter(workshop =>
+        workshop.startsAt >= startsAfter
+      );
+    }
+
+    if (endsBefore) {
+      list = list.filter(workshop =>
+        workshop.endsAt <= endsBefore
+      );
+    }
     if (lat !== '' || lon !== '') {
       const a=Number(lat), b=Number(lon),maxKm=Number(radiusKm)
       if(!within(a,-90,90)||!within(b,-180,180))return error(res,400,'Coordenadas GPS no válidas.')
-      list=list.map(w=>({...w,distanceKm:round(distanceKm([a,b],districts[w.district]))})).filter(w=>w.distanceKm<=(within(maxKm,1,100)?maxKm:15)).sort((x,y)=>x.distanceKm-y.distanceKm)
+      list=list.map(w=>({...w,distanceKm:round(distanceKm([a,b],workshopLocation(w)))})).filter(w=>w.distanceKm<=(within(maxKm,1,100)?maxKm:15)).sort((x,y)=>x.distanceKm-y.distanceKm)
     } else if (near && districts[near]) {
       const maxKm = Number(radiusKm)
-      list = list.map(w => ({ ...w, distanceKm:round(distanceKm(districts[near],districts[w.district])) })).filter(w => w.distanceKm <= (within(maxKm,1,100) ? maxKm : 15)).sort((a,b)=>a.distanceKm-b.distanceKm)
+      list = list.map(w => ({ ...w, distanceKm:round(distanceKm(districts[near],workshopLocation(w))) })).filter(w => w.distanceKm <= (within(maxKm,1,100) ? maxKm : 15)).sort((a,b)=>a.distanceKm-b.distanceKm)
     }
     res.json({ items:list, count:list.length })
   })
@@ -202,36 +367,140 @@ export function createApp(store = createSeedStore(), options = {}) {
     if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
     res.json({ items:feedback(store,req.params.id).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)) })
   })
-  app.post('/api/workshops/:id/reviews', auth, async (req,res) => {
-    if (req.user.role !== 'client') return error(res,403,'Solo los participantes pueden valorar.')
-    if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
-    const { stars, comment } = req.body || {}
-    if (!Number.isInteger(Number(stars)) || !within(Number(stars),1,5) || typeof comment!=='string' || comment.trim().length < 8 || comment.trim().length > 500) return error(res,400,'Escribe una reseña de 8 a 500 caracteres y selecciona de 1 a 5 estrellas.')
-    if (!store.bookings.some(b => b.workshopId===req.params.id && b.userId===req.user.id && b.status==='confirmada')) return error(res,403,'Solo puedes valorar talleres en los que tienes una reserva.')
-    const existing = store.reviews.find(r => r.workshopId===req.params.id && r.userId===req.user.id)
-    if (existing) {
-      Object.assign(existing,{stars:Number(stars),comment:comment.trim(),createdAt:new Date().toISOString()})
-      await persist('reviews', existing)
-      return res.json({item:existing})
+  app.post('/api/workshops/:id/reviews', auth, async (req, res, next) => {
+    try {
+      if (req.user.role !== 'client') {
+        return error(res, 403, 'Solo los participantes pueden valorar.');
+      }
+
+      const workshop = publicWorkshop(store, req.params.id);
+
+      if (!workshop) {
+        return error(res, 404, 'Taller no encontrado.');
+      }
+
+      const { stars, comment } = req.body || {};
+      const rating = Number(stars);
+
+      if (
+        !Number.isInteger(rating) ||
+        !within(rating, 1, 5) ||
+        typeof comment !== 'string' ||
+        comment.trim().length < 8 ||
+        comment.trim().length > 500
+      ) {
+        return error(
+          res,
+          400,
+          'Selecciona de 1 a 5 estrellas y escribe entre 8 y 500 caracteres.'
+        );
+      }
+
+      const hasBooking = store.bookings.some(booking =>
+        booking.workshopId === req.params.id &&
+        booking.userId === req.user.id &&
+        booking.status === 'confirmada'
+      );
+
+      if (!hasBooking) {
+        return error(
+          res,
+          403,
+          'Solo puedes valorar talleres en los que tienes una reserva.'
+        );
+      }
+
+      const existing = store.reviews.find(review =>
+        review.workshopId === req.params.id &&
+        review.userId === req.user.id
+      );
+
+      if (existing) {
+        const updated = {
+          ...existing,
+          name: req.user.name,
+          stars: rating,
+          comment: comment.trim(),
+          createdAt: new Date().toISOString()
+        };
+
+        await persist('reviews', updated);
+
+        Object.assign(existing, updated);
+
+        return res.json({ item: existing });
+      }
+
+      const review = {
+        id: randomUUID(),
+        workshopId: req.params.id,
+        userId: req.user.id,
+        name: req.user.name,
+        stars: rating,
+        comment: comment.trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      await persist('reviews', review);
+
+      store.reviews.push(review);
+
+      res.status(201).json({ item: review });
+    } catch (err) {
+      next(err);
     }
-    const review = { id:randomUUID(), workshopId:req.params.id, userId:req.user.id, name:req.user.name, stars:Number(stars), comment:comment.trim(), createdAt:new Date().toISOString() }
-    store.reviews.push(review)
-    await persist('reviews', review)
-    res.status(201).json({item:review})
-  })
+  });
 
   app.get('/api/me/favorites', auth, (req,res) => res.json({items:req.user.favorites.map(id => publicWorkshop(store,id)).filter(Boolean)}))
-  app.post('/api/me/favorites/:id', auth, async (req,res) => {
-    if (!publicWorkshop(store,req.params.id)) return error(res,404,'Taller no encontrado.')
-    if (!req.user.favorites.includes(req.params.id)) req.user.favorites.push(req.params.id)
-    await persist('users', req.user)
-    res.json({ favorites:req.user.favorites })
-  })
-  app.delete('/api/me/favorites/:id', auth, async (req,res) => {
-    req.user.favorites = req.user.favorites.filter(id => id !== req.params.id)
-    await persist('users', req.user)
-    res.json({favorites:req.user.favorites})
-  })
+  app.post('/api/me/favorites/:id', auth, async (req, res, next) => {
+    try {
+      const workshop = publicWorkshop(store, req.params.id);
+
+      if (!workshop) {
+        return error(res, 404, 'Taller no encontrado.');
+      }
+
+      const favorites = [...(req.user.favorites || [])];
+
+      if (!favorites.includes(req.params.id)) {
+        favorites.push(req.params.id);
+      }
+
+      const updated = {
+        ...req.user,
+        favorites
+      };
+
+      await persist('users', updated);
+
+      req.user.favorites = favorites;
+
+      res.json({ favorites });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/me/favorites/:id', auth, async (req, res, next) => {
+    try {
+      const favorites = (req.user.favorites || []).filter(
+        id => id !== req.params.id
+      );
+
+      const updated = {
+        ...req.user,
+        favorites
+      };
+
+      await persist('users', updated);
+
+      req.user.favorites = favorites;
+
+      res.json({ favorites });
+    } catch (err) {
+      next(err);
+    }
+  });
   app.get('/api/me/bookings', auth, (req,res) => res.json({items:store.bookings.filter(b=>b.userId===req.user.id).map(b=>({...b,workshop:publicWorkshop(store,b.workshopId)})).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))}))
   app.post('/api/workshops/:id/bookings', auth, async (req,res) => {
     if (req.user.role !== 'client') return error(res,403,'Solo los clientes pueden reservar talleres.')
@@ -252,36 +521,136 @@ export function createApp(store = createSeedStore(), options = {}) {
 
   app.get('/api/instructor/workshops', instructor, (req,res) => res.json({items:store.workshops.filter(w => w.instructorId===req.user.id).map(w => enrich(store,w))}))
   app.post('/api/instructor/workshops', instructor, async (req,res) => {
-    const msg=validateWorkshop(req.body || {})
-    if (msg) return error(res,400,msg)
-    const p=req.body
-    const w={ id:randomUUID(), instructorId:req.user.id, published:true, currency:'PEN', ...Object.fromEntries(['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image'].map(k=>[k,p[k].trim()])), price:Number(p.price), capacity:Number(p.capacity) }
-    // Sesiones recurrentes semanales: instancias independientes con sus propios cupos.
-    const count = p.recurrence === 'weekly' ? Number(p.repeatCount || 1) : 1
-    if (!Number.isInteger(count) || count < 1 || count > 8) return error(res,400,'Máximo 8 sesiones semanales.')
-    if (p.recurrence && !['once','weekly'].includes(p.recurrence)) return error(res,400,'Recurrencia inválida.')
-    const seriesId = count > 1 ? randomUUID() : null
-    const created=[]
-    for (let i=0;i<count;i++) {
-      const session={...w, id: i ? randomUUID() : w.id, recurrenceGroupId: seriesId, recurrence: count>1?'weekly':'once', repeatCount:count}
-      if (i) { const day=new Date(`${w.date}T12:00:00Z`); day.setUTCDate(day.getUTCDate()+i*7); session.date=day.toISOString().slice(0,10) }
-      await persist('workshops', session)
-      store.workshops.push(session)
-      created.push(session)
+      const msg=validateWorkshop(req.body || {})
+      if (msg) return error(res,400,msg)
+      const p=req.body
+      const w={ id:randomUUID(), instructorId:req.user.id, published:true, currency:'PEN', ...Object.fromEntries(['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image'].map(k=>[k,p[k].trim()])), price:Number(p.price), capacity:Number(p.capacity) }
+      // Sesiones recurrentes semanales: instancias independientes con sus propios cupos.
+      w.latitude = p.latitude ?? null;
+      w.longitude = p.longitude ?? null;  
+      const count = p.recurrence === 'weekly' ? Number(p.repeatCount || 1) : 1
+      if (!Number.isInteger(count) || count < 1 || count > 8) return error(res,400,'Máximo 8 sesiones semanales.')
+      if (p.recurrence && !['once','weekly'].includes(p.recurrence)) return error(res,400,'Recurrencia inválida.')
+      const seriesId = count > 1 ? randomUUID() : null
+      const created = [];
+      for (let i = 0; i < count; i++) {
+        const date = new Date(`${w.date}T12:00:00Z`);
+
+        date.setUTCDate(date.getUTCDate() + i * 7);
+
+        const sessionDate = date.toISOString().slice(0, 10);
+
+        if (!isValidDate(sessionDate)) {
+          return error(
+            res,
+            400,
+            'Una de las fechas generadas no es válida.'
+          );
+        }
+
+        const session = {
+          ...w,
+          id: i === 0 ? w.id : randomUUID(),
+          date: sessionDate,
+          recurrenceGroupId: seriesId,
+          recurrence: count > 1 ? 'weekly' : 'once',
+          repeatCount: count
+        };
+
+        created.push(session);
+      }
+
+      if (options.persistMany) {
+        await options.persistMany('workshops', created);
+      } else if (created.length === 1) {
+        await persist('workshops', created[0]);
+      } else if (persistent || options.persistOne) {
+        throw new Error(
+          'Falta conectar el guardado conjunto de las sesiones.'
+        );
+      }
+
+      store.workshops.push(...created);
+
+      res.status(201).json({
+        item: enrich(store, created[0]),
+        createdCount: created.length
+      });
+    })
+    app.put('/api/instructor/workshops/:id', instructor, async (req, res, next) => {
+    try {
+      const workshop = store.workshops.find(item =>
+        item.id === req.params.id &&
+        item.instructorId === req.user.id
+      );
+
+      if (!workshop) {
+        return error(
+          res,
+          404,
+          'No existe el taller o no te pertenece.'
+        );
+      }
+
+      const payload = {
+        ...workshop,
+        ...(req.body || {})
+      };
+
+      const message = validateWorkshop(payload);
+
+      if (message) {
+        return error(res, 400, message);
+      }
+
+      const reserved = seatsBooked(store, workshop.id);
+
+      if (Number(payload.capacity) < reserved) {
+        return error(
+          res,
+          409,
+          'No puedes reducir los cupos por debajo de las reservas confirmadas.'
+        );
+      }
+
+      const fields = [
+        'title',
+        'summary',
+        'description',
+        'category',
+        'district',
+        'venue',
+        'address',
+        'date',
+        'startsAt',
+        'endsAt',
+        'level',
+        'materialsIncluded',
+        'materialsBring',
+        'image'
+      ];
+
+      const updated = { ...workshop };
+
+      for (const field of fields) {
+        updated[field] = payload[field].trim();
+      }
+
+      updated.price = Number(payload.price);
+      updated.capacity = Number(payload.capacity);
+      updated.published = payload.published !== false;
+      updated.latitude = payload.latitude ?? null;
+      updated.longitude = payload.longitude ?? null;
+
+      await persist('workshops', updated);
+
+      Object.assign(workshop, updated);
+
+      res.json({ item: enrich(store, workshop) });
+    } catch (err) {
+      next(err);
     }
-    res.status(201).json({item:enrich(store,w),createdCount:created.length})
-  })
-  app.put('/api/instructor/workshops/:id', instructor, async (req,res) => {
-    const w=store.workshops.find(w => w.id===req.params.id && w.instructorId===req.user.id)
-    if (!w) return error(res,404,'No existe el taller o no te pertenece.')
-    const payload={...w,...req.body}
-    const msg=validateWorkshop(payload)
-    if (msg) return error(res,400,msg)
-    if (Number(payload.capacity) < seatsBooked(store,w.id)) return error(res,409,'No puedes reducir cupos por debajo de las reservas confirmadas.')
-    Object.assign(w, Object.fromEntries(['title','summary','description','category','district','venue','address','date','startsAt','endsAt','level','materialsIncluded','materialsBring','image'].map(k=>[k,payload[k].trim()])), { price:Number(payload.price),capacity:Number(payload.capacity), published:payload.published !== false })
-    await persist('workshops', w)
-    res.json({item:enrich(store,w)})
-  })
+  });
   app.delete('/api/instructor/workshops/:id', instructor, async (req,res) => {
     const idx=store.workshops.findIndex(w=>w.id===req.params.id && w.instructorId===req.user.id)
     if (idx<0) return error(res,404,'Taller no encontrado.')
@@ -315,15 +684,76 @@ export function createApp(store = createSeedStore(), options = {}) {
     res.json({ item: {id:user.id, name:user.name, studio:user.studio||{},
       workshopCount:store.workshops.filter(w=>w.instructorId===user.id && w.published).length } })
   })
-  app.patch('/api/instructor/studio', instructor, async (req,res) => {
-    const {displayName='',bio='',link='',accent='terracota',coverImage=''}=req.body||{}
-    if (typeof displayName!=='string'||displayName.length>90 ||typeof bio!=='string'||bio.length>900 ||typeof link!=='string'||link.length>220 || !['terracota','oliva','azul'].includes(accent)) return error(res,400,'Revisa los datos del perfil del tallerista.')
-    if (coverImage && !validImage(coverImage)) return error(res,400,'Selecciona una foto de portada válida.')
-    if (link && !/^https:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9/?#&=_.%~-]*)?$/i.test(link)) return error(res,400,'Introduce un enlace HTTPS válido.')
-    req.user.studio={displayName:displayName.trim(),bio:bio.trim(),link:link.trim(),accent,coverImage}
-    await persist('users',req.user)
-    res.json({item:req.user.studio})
-  })
+  app.patch('/api/instructor/studio', instructor, async (req, res, next) => {
+  try {
+    const {
+      displayName = '',
+      bio = '',
+      link = '',
+      accent = 'terracota',
+      coverImage = ''
+    } = req.body || {};
+
+    if (
+      typeof displayName !== 'string' ||
+      displayName.length > 90 ||
+      typeof bio !== 'string' ||
+      bio.length > 900 ||
+      typeof link !== 'string' ||
+      link.length > 220 ||
+      typeof coverImage !== 'string' ||
+      !['terracota', 'oliva', 'azul'].includes(accent)
+    ) {
+      return error(
+        res,
+        400,
+        'Revisa los datos del perfil del tallerista.'
+      );
+    }
+
+    if (coverImage && !validImage(coverImage)) {
+      return error(
+        res,
+        400,
+        'Selecciona una foto de portada válida.'
+      );
+    }
+
+    const cleanLink = link.trim();
+
+    if (
+      cleanLink &&
+      !/^https:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9/?#&=_.%~-]*)?$/i.test(cleanLink)
+    ) {
+      return error(
+        res,
+        400,
+        'Introduce un enlace válido que comience con https://'
+      );
+    }
+
+    const studio = {
+      displayName: displayName.trim(),
+      bio: bio.trim(),
+      link: cleanLink,
+      accent,
+      coverImage
+    };
+
+    const updated = {
+      ...req.user,
+      studio
+    };
+
+    await persist('users', updated);
+
+    req.user.studio = studio;
+
+    res.json({ item: studio });
+  } catch (err) {
+    next(err);
+  }
+});
   app.post('/api/feedback', auth, async (req,res) => {
     const {rating,comment,area='general'}=req.body||{}
     if (!Number.isInteger(Number(rating)) || Number(rating)<1 || Number(rating)>5 || typeof comment!=='string' || comment.trim().length<10 || comment.length>1000 || !['general','busqueda','reserva','tallerista'].includes(area)) return error(res,400,'Califica de 1 a 5 y deja un comentario de 10 a 1000 caracteres.')

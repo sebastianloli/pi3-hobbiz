@@ -35,5 +35,39 @@ export async function openMongoStore(env=process.env) {
     if (!collections.includes(kind)) throw new Error('Colección no permitida')
     await db.collection(kind).deleteOne({id})
   }
-  return {store,client,db,persistOne,removeOne}
+  const persistMany = async (kind, records) => {
+    if (!collections.includes(kind)) {
+      throw new Error('Colección no permitida.');
+    }
+
+    if (!records.length) {
+      return;
+    }
+
+    const session = client.startSession();
+
+    try {
+      await session.withTransaction(async () => {
+        const documents = records.map(record => {
+          const { _id, ...document } = record;
+          return document;
+        });
+
+        await db.collection(kind).insertMany(documents, {
+          session
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
+  };
+
+  return {
+    store,
+    client,
+    db,
+    persistOne,
+    persistMany,
+    removeOne
+  };
 }
