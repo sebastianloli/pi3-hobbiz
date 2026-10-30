@@ -8,7 +8,8 @@ const route=useRoute(),router=useRouter(),item=ref(null),reviews=ref([]),seats=r
 const isClient=computed(()=>state.user?.role==='client'),hasBooking=ref(false),mine=computed(()=>reviews.value.find(r=>r.userId===state.user?.id))
 // Rama de Santiago: si se configura VITE_GOOGLE_MAPS_EMBED_KEY (Maps Embed API, uso gratuito) se muestra
 // el mapa de Google; si no, se usa el mapa Leaflet + OpenStreetMap, que no necesita clave.
-const googleKey=import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY||''
+// Si ya hay clave de la Maps JavaScript API, MapView muestra Google interactivo y no hace falta el iframe.
+const googleKey=import.meta.env.VITE_GOOGLE_MAPS_API_KEY?'':(import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY||'')
 const googleMapUrl=computed(()=>googleKey&&item.value?`https://www.google.com/maps/embed/v1/place?${new URLSearchParams({key:googleKey,q:`${item.value.lat},${item.value.lon}`,zoom:'17'})}`:'')
 const mapMarkers=computed(()=>item.value?[item.value]:[]),mapCenter=computed(()=>item.value?[item.value.lat,item.value.lon]:undefined)
 async function load(){try{const [w,r,b]=await Promise.all([authRequest(`/workshops/${route.params.id}`),authRequest(`/workshops/${route.params.id}/reviews`),isClient.value?authRequest('/me/bookings'):Promise.resolve({items:[]})]);item.value=w.item;reviews.value=r.items;saved.value=state.favoriteIds.includes(w.item.id);hasBooking.value=b.items.some(x=>x.workshopId===w.item.id&&x.status==='confirmada');if(mine.value){stars.value=mine.value.stars;comment.value=mine.value.comment}}catch(e){notify(e.message)}}
