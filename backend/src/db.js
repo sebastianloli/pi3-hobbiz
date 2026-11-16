@@ -1,19 +1,37 @@
 import { MongoClient } from 'mongodb'
-import { createSeedStore } from './data.js'
 import { planMigration } from './migrate.js'
+
+// Cadena de conexión: MONGODB_URI con <db_password> reemplazado por MONGODB_PASSWORD (así la clave no
+// queda en la URI). La usan el servidor, npm run db:check y npm run db:seed.
+export function mongoUri(env = process.env) {
+  let uri = String(env.MONGODB_URI || '').trim().replace(/^["']|["']$/g, '')
+  if (!uri) throw new Error('Falta MONGODB_URI en backend/.env')
+  for (const marker of ['<db_password>', '<password>']) {
+    if (!uri.includes(marker)) continue
+    if (!env.MONGODB_PASSWORD) throw new Error(`Falta MONGODB_PASSWORD para ${marker}`)
+    uri = uri.replace(marker, encodeURIComponent(env.MONGODB_PASSWORD))
+  }
+  return uri
+}
+
+// Aplica un plan de planMigration: reemplaza los documentos corregidos e inserta los que falten
+// ($setOnInsert, nunca pisa). Actualiza también la copia en memoria `store`.
+export async function applyPlan(db, store, plan) {
+  for (const kind of ['users', 'workshops', 'bookings']) {
+    const docs = plan.updates[kind]
+    if (docs.length) await db.collection(kind).bulkWrite(docs.map(d => ({ replaceOne: { filter: { id: d.id }, replacement: d } })))
+    for (const d of docs) Object.assign(store[kind].find(x => x.id === d.id), d)
+  }
+  for (const kind of ['users', 'workshops']) {
+    const docs = plan.inserts[kind]
+    if (docs.length) await db.collection(kind).bulkWrite(docs.map(d => ({ updateOne: { filter: { id: d.id }, update: { $setOnInsert: d }, upsert: true } })))
+    store[kind].push(...docs)
+  }
+}
 
 // `connect` permite inyectar un cliente simulado en las pruebas (test/mongo.test.js).
 export async function openMongoStore(env=process.env, { connect = uri => new MongoClient(uri,{serverSelectionTimeoutMS:10000,maxPoolSize:5}) } = {}) {
-  const template = env.MONGODB_URI
-  if (!template) throw new Error('Falta MONGODB_URI en backend/.env')
-  let uri = template
-  for (const marker of ['<db_password>','<password>']) {
-    if (uri.includes(marker)) {
-      if (!env.MONGODB_PASSWORD) throw new Error(`Falta MONGODB_PASSWORD para ${marker}`)
-      uri=uri.replace(marker,encodeURIComponent(env.MONGODB_PASSWORD))
-    }
-  }
-  const client=connect(uri)
+  const client=connect(mongoUri(env))
   await client.connect()
   const db=client.db(env.MONGODB_DB || 'hobbiz')
   await db.command({ping:1})
@@ -27,18 +45,9 @@ export async function openMongoStore(env=process.env, { connect = uri => new Mon
   const store={sessions:new Map()}
   for(const c of collections) store[c]=await db.collection(c).find({}, {projection:{_id:0}}).toArray()
 
-  // Migración automática de datos antiguos + carga de las fichas reales que falten (MONGODB_SEED_CATALOG=true).
-  const plan = planMigration(store, env.MONGODB_SEED_CATALOG === 'true' ? createSeedStore() : null)
-  for (const kind of ['users', 'workshops', 'bookings']) {
-    const docs = plan.updates[kind]
-    if (docs.length) await db.collection(kind).bulkWrite(docs.map(d => ({ replaceOne: { filter: { id: d.id }, replacement: d } })))
-    for (const d of docs) Object.assign(store[kind].find(x => x.id === d.id), d)
-  }
-  for (const kind of ['users', 'workshops']) {
-    const docs = plan.inserts[kind]
-    if (docs.length) await db.collection(kind).bulkWrite(docs.map(d => ({ updateOne: { filter: { id: d.id }, update: { $setOnInsert: d }, upsert: true } })))
-    store[kind].push(...docs)
-  }
+  // Migración automática: siempre corrige/completa; inserta fichas de locales que falten solo con MONGODB_SEED_CATALOG=true.
+  const plan = planMigration(store, { insert: env.MONGODB_SEED_CATALOG === 'true' })
+  await applyPlan(db, store, plan)
   const touched = Object.entries(plan.report).filter(([, n]) => n)
   if (touched.length) console.log('[mongo] Migración aplicada:', Object.fromEntries(touched))
 

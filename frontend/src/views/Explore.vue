@@ -24,7 +24,7 @@ onMounted(search)
     <label>Horario <select v-model="filters.timeOfDay"><option value="">Cualquier hora</option><option value="mañana">Mañana (antes de 12:00)</option><option value="tarde">Tarde (12:00–18:00)</option><option value="noche">Noche (desde 18:00)</option></select></label>
     <label>Empieza desde <input v-model="filters.startsAfter" type="time"/></label>
     <label>Termina hasta <input v-model="filters.endsBefore" type="time"/></label></div>
-    <div class="filter-actions"><RouterLink to="/cerca" class="btn light"><MapPinned :size="17"/> ¿Prefieres buscar por cercanía? Ir a Cerca de mí</RouterLink><button class="btn ghost" @click="reset"><X :size="16"/> Limpiar</button><button class="btn primary" @click="search">Aplicar filtros</button></div>
+    <div class="filter-actions"><RouterLink to="/locales" class="btn light">Ver directorio de locales</RouterLink><RouterLink to="/cerca" class="btn light"><MapPinned :size="17"/> ¿Prefieres buscar por cercanía? Ir a Cerca de mí</RouterLink><button class="btn ghost" @click="reset"><X :size="16"/> Limpiar</button><button class="btn primary" @click="search">Aplicar filtros</button></div>
   </section>
   <div class="list-intro between"><span>{{loading?'Buscando...':`${items.length} resultados encontrados`}}</span><div class="view-toggle" role="group" aria-label="Tipo de vista"><button :class="{selected:view==='lista'}" @click="view='lista'"><LayoutGrid :size="16"/> Lista</button><button :class="{selected:view==='mapa'}" @click="view='mapa'"><MapIcon :size="16"/> Mapa</button></div></div>
   <MapView v-if="view==='mapa'" :markers="items" :areas="state.meta.districtAreas" height="460px"/>

@@ -5,7 +5,7 @@ import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 import { MongoClient } from 'mongodb'
 import { planMigration } from '../src/migrate.js'
-import { createSeedStore } from '../src/data.js'
+import { mongoUri } from '../src/db.js'
 import { createFirebaseVerifier } from '../src/firebase-admin.js'
 
 dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)) })
@@ -21,9 +21,7 @@ if (env.HOBBIZ_MODE !== 'firebase-mongo') console.log('  ! HOBBIZ_MODE no es fir
 console.log('\n2. MongoDB Atlas')
 let client
 try {
-  let uri = env.MONGODB_URI || ''
-  for (const marker of ['<db_password>', '<password>']) if (uri.includes(marker)) uri = uri.replace(marker, encodeURIComponent(env.MONGODB_PASSWORD || ''))
-  client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 })
+  client = new MongoClient(mongoUri(env), { serverSelectionTimeoutMS: 10000 })
   await client.connect()
   const db = client.db(env.MONGODB_DB || 'hobbiz')
   await db.command({ ping: 1 })
@@ -33,10 +31,12 @@ try {
     store[c] = await db.collection(c).find({}, { projection: { _id: 0 } }).toArray()
     console.log(`     ${c.padEnd(10)} ${store[c].length} documentos`)
   }
-  const plan = planMigration(store, env.MONGODB_SEED_CATALOG === 'true' ? createSeedStore() : null)
+  const plan = planMigration(store, { insert: env.MONGODB_SEED_CATALOG === 'true' })
   const pending = Object.entries(plan.report).filter(([, n]) => n)
   console.log('\n3. Migración que se aplicará al arrancar (simulación)')
   if (!pending.length) ok('Nada que migrar: los datos ya tienen el formato actual.')
+  const faltan = planMigration(store, { insert: true }).report
+  if (faltan.seededUsers || faltan.seededWorkshops) console.log(`     ! Faltan ${faltan.seededUsers} fichas de locales y ${faltan.seededWorkshops} sesiones de ejemplo: ejecuta npm run db:seed`)
   for (const [k, n] of pending) console.log(`     ${k.padEnd(18)} ${n}`)
 } catch (e) {
   bad(`No se pudo conectar: ${e.message}`)

@@ -825,3 +825,28 @@ export const venues = [
   ]
  }
 ]
+
+// Locales del PDF sin información pública verificable (rama carga-locales-demo): se cargan solo como
+// fichas básicas "por reclamar" (nombre, distrito, Instagram), sin sesiones, hasta que el local las complete.
+export const pendingVenues = [
+ { handle: "brilla_pe", venue: "Brilla Pe", district: "Barranco" },
+ { handle: "ultramaaar", venue: "Ultramaaar", district: "Barranco" },
+ { handle: "taller320.barranco", venue: "Taller 320", district: "Barranco" },
+ { handle: "octava.pe", venue: "Octava", district: "Barranco" },
+ { handle: "quinchaestudio", venue: "Quincha Estudio", district: "Barranco" },
+ { handle: "_blanlab_", venue: "BLANLAB", district: "Barranco" },
+ { handle: "espacio_303", venue: "Espacio 303", district: "Barranco" },
+ { handle: "somosbarranqueando", venue: "Barranqueando", district: "Barranco" },
+ { handle: "studiorock.pe", venue: "Studio Rock", district: "Miraflores" },
+ { handle: "eltaller.espacio", venue: "El Taller Espacio", district: "Miraflores" },
+ { handle: "rimaconlima", venue: "Rima con Lima", district: "Miraflores" }
+]
+
+// Locales del PDF que la investigación ubicó FUERA de Miraflores y Barranco: no se cargan, y si una
+// carga anterior los insertó, la migración los archiva (ver docs/TALLERES_FUENTES.md).
+export const excludedVenues = [
+ { handle: "taller.magenta", venue: "Taller Magenta", realDistrict: "San Juan de Miraflores" },
+ { handle: "ampayyuraq", venue: "Ampay Yuraq", realDistrict: "Santiago de Surco" },
+ { handle: "lapuertarojataller", venue: "La Puerta Roja Taller", realDistrict: "San Isidro" },
+ { handle: "workshop.centroartistico", venue: "Workshop Centro Artístico", realDistrict: "Lince" }
+]

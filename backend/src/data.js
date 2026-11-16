@@ -1,6 +1,6 @@
 import { randomBytes, scryptSync } from 'node:crypto'
 
-import { venues } from './venues.js'
+import { venues, pendingVenues, excludedVenues } from './venues.js'
 
 // Hobbiz se limita a Miraflores y Barranco. Centro de cada distrito y caja aproximada de sus límites
 // (se usa para validar que el pin de un taller quede dentro del distrito declarado).
@@ -65,16 +65,25 @@ function upcoming(date) {
   return d.toISOString().slice(0, 10)
 }
 
-function venueSeed() {
+// Identificador estable de cada local del PDF (el mismo que usa la rama carga-locales-demo).
+export const venueId = (handle) => `venue-${handle.replace(/[^a-z0-9]+/gi, '-')}`
+export const excludedVenueIds = new Set(excludedVenues.map(v => venueId(v.handle)))
+
+export function venueSeed() {
   const users = [], workshops = []
   for (const v of venues) {
-    const id = `venue-${v.handle.replace(/[^a-z0-9]+/gi, '-')}`
+    const id = venueId(v.handle)
     users.push({ id, name: v.venue, email: '', role: 'instructor', claimed: false, preferences: { interests: [], budget: 0, district: v.district, day: '' }, favorites: [],
-      studio: defaultStudio({ displayName: v.venue, tagline: clip(publicText(v.activities).split(/[;.]/)[0], 140), bio: publicText(v.description), link: v.links.web || '', links: v.links, accent: v.accent, font: v.font, coverImage: v.image, gallery: [v.image], district: v.district, address: v.address }) })
+      studio: defaultStudio({ displayName: v.venue, tagline: clip(publicText(v.activities).split(";")[0].trim(), 140), bio: publicText(v.description), link: v.links.web || '', links: v.links, accent: v.accent, font: v.font, coverImage: v.image, gallery: [v.image], district: v.district, address: v.address }) })
     workshops.push({ id: `w-${v.handle.replace(/[^a-z0-9]+/gi, '-')}`, instructorId: id, published: true, enrollmentOpen: true, currency: 'PEN', sampleData: true,
       title: v.title, category: v.category, summary: clip(publicText(v.activities), 180), description: `${publicText(v.description)} Sesión de ejemplo publicada para el prototipo: confirma precio, fecha y cupos con el taller.`,
       price: v.price, district: v.district, venue: v.venue, address: v.address, lat: v.lat, lon: v.lon, locationPrecision: v.coordsConfidence,
       date: upcoming(v.date), startsAt: v.startsAt, endsAt: v.endsAt, capacity: v.capacity, level: v.level, image: v.image, materialsIncluded: v.materialsIncluded, materialsBring: v.materialsBring })
+  }
+  // Fichas básicas: los locales del PDF que aún no tienen información verificable (sin sesiones).
+  for (const v of pendingVenues) {
+    users.push({ id: venueId(v.handle), name: v.venue, email: '', role: 'instructor', claimed: false, verified: false, preferences: { interests: [], budget: 0, district: v.district, day: '' }, favorites: [],
+      studio: defaultStudio({ displayName: v.venue, links: { instagram: `https://www.instagram.com/${v.handle}/` }, district: v.district }) })
   }
   return { users, workshops }
 }

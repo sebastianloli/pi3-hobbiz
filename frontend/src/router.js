@@ -17,6 +17,7 @@ import InstructorReviews from './views/InstructorReviews.vue'
 import FlowGuide from './views/FlowGuide.vue'
 import NearMe from './views/NearMe.vue'
 import StudioPublic from './views/StudioPublic.vue'
+import Locales from './views/Locales.vue'
 import { state, homeFor } from './lib/state'
 
 const routes = [
@@ -25,6 +26,7 @@ const routes = [
   { path:'/agenda',component:Calendar, meta:{ role:'client' } },
   { path:'/cerca', component:NearMe, meta:{ role:'client' } },
   { path:'/estudio/:id', component:StudioPublic },
+  { path:'/locales', component:Locales },
   { path:'/tallerista/perfil',component:InstructorStudio,meta:{role:'instructor'} },
   { path:'/', component:Home, meta:{ role:'client' } },
   { path:'/explorar', component:Explore, meta:{ role:'client' } },

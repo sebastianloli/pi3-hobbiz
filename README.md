@@ -43,6 +43,7 @@ La integración ahora utiliza **un solo sistema de identidad por modo**. En `fir
 - **Recordarme**: con la casilla, `localStorage` y token de 30 días (o `browserLocalPersistence` en Firebase); sin ella, `sessionStorage` y 8 horas. También recuerda el último correo usado.
 
 ### Cliente
+- **Directorio de locales** (`/locales`): los 35 locales de Miraflores y Barranco, con y sin sesiones publicadas.
 - Catálogo de talleres de Miraflores y Barranco con nombre, categoría, local, dirección, precio, fecha y horario.
 - **Búsqueda manual** (`/explorar`): texto, categoría, distrito, precio máximo, día y horario (mañana, tarde o noche). Vista de lista o de **mapa**.
 - **Cerca de mí** (`/cerca`, apartado separado): GPS del navegador, toque en el mapa o centro del distrito; radio de 500 m a 5 km; distancias reales hasta el pin de cada taller.
@@ -88,6 +89,7 @@ npm test                    # pruebas de API, roles, reservas, recurrencias
 - Talleres reales y fuentes: [`docs/TALLERES_FUENTES.md`](docs/TALLERES_FUENTES.md).
 - Integración de la rama de Santiago: [`docs/INTEGRACION_SANTIAGO.md`](docs/INTEGRACION_SANTIAGO.md).
 - Diagnóstico de la conexión real: `npm run db:check`.
+- Carga de los locales de `talleres.pdf` en Atlas: `npm run db:seed` (o `npm run db:seed -- --dry-run` para simular).
 - Pruebas manuales: [`docs/PRUEBAS_MANUALES.md`](docs/PRUEBAS_MANUALES.md).
 - Los tests de Firebase usan un **verificador simulado de tokens** y un guardado simulado, no conexiones de pago/Atlas. La prueba de integración real de Firebase/Mongo debe ejecutarse con servicios autorizados.
 

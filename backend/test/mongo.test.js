@@ -73,10 +73,10 @@ test('migración: oculta fuera de zona y huérfanos, renombra coordenadas, compl
   const santi = fake.data.users.find(u => u.id === 'uid-tallerista')
   assert.equal(santi.preferences.district, 'Miraflores'); assert.equal(santi.studio.accent, 'terracota'); assert.equal(santi.studio.links.web, 'https://santi.pe')
   assert.equal(fake.data.workshops.filter(x => x.id.startsWith('w-')).length, 24)
-  assert.equal(fake.data.users.filter(x => x.id.startsWith('venue-')).length, 24)
+  assert.equal(fake.data.users.filter(x => x.id.startsWith('venue-')).length, 35)
   assert.ok(fake.indexes.some(i => i.name === 'reviews' && i.opts?.unique))
   // Idempotente: una segunda pasada no encuentra nada que cambiar.
-  const again = planMigration(mongo.store, null)
+  const again = planMigration(mongo.store, { insert: true })
   assert.deepEqual(Object.values(again.report).filter(Boolean), [])
 })
 
@@ -115,5 +115,94 @@ test('Firebase + Mongo de punta a punta: reservas, serie en transacción y memor
     // Los datos persisten: reabrir el "servidor" sobre la misma BD conserva reservas y talleres.
     const reopened = await openMongoStore(env, { connect: () => ({ ...fake.client }) })
     assert.equal(reopened.store.bookings.filter(b => b.workshopId === 'old-2').reduce((s, b) => s + b.seats, 0), 3)
+  } finally { await new Promise(r => server.close(r)) }
+})
+
+// Base donde ya se ejecutó la versión anterior de backend/scripts/cargar-locales.mjs (rama carga-locales-demo):
+// 39 perfiles vacíos con los nombres tal cual el PDF, incluidos los 4 que están fuera de zona.
+const PDF = [
+  ['Brilla Pe', 'Barranco', 'brilla_pe'],
+  ['Blacktelier creativo', 'Barranco', 'blackateliercreativo'],
+  ['Taller Magenta', 'Barranco', 'taller.magenta'],
+  ['Casonatrazzo', 'Barranco', 'casonatrazzo'],
+  ['Ampayyuraq', 'Barranco', 'ampayyuraq'],
+  ['Kapulitelier', 'Barranco', 'kapuliatelier'],
+  ['Peruacademyofart', 'Barranco', 'peruacademyofart'],
+  ['Casa Infinito Perú', 'Barranco', 'casainfinitoperu'],
+  ['Ultramaaar', 'Barranco', 'ultramaaar'],
+  ['Lima Fuego Academy', 'Barranco', 'limafuegoacademy'],
+  ['Taller 320', 'Barranco', 'taller320.barranco'],
+  ['Paint and Wine Perú', 'Barranco', 'paintandwineperu'],
+  ['Octava', 'Barranco', 'octava.pe'],
+  ['Quincha Estudio', 'Barranco', 'quinchaestudio'],
+  ['BLANLAB', 'Barranco', '_blanlab_'],
+  ['Espacio 303', 'Barranco', 'espacio_303'],
+  ['Academia Aidem', 'Barranco', 'aidem_musica_barranco'],
+  ['Samaca Artes y Letras', 'Barranco', 'samacaartesyletras'],
+  ['Barranqueando', 'Barranco', 'somosbarranqueando'],
+  ['Studio Rock', 'Miraflores', 'studiorock.pe'],
+  ['Taller de escritura creativa', 'Miraflores', 'tallerdeescrituracreativa'],
+  ['El Embarre', 'Miraflores', 'elembarretaller'],
+  ['Spazio', 'Miraflores', 'spaziostudio.pe'],
+  ['Wegner', 'Miraflores', 'wagnertalleresdearte'],
+  ['Terra Point', 'Miraflores', 'terrapoint.pe'],
+  ['PLAM', 'Miraflores', 'plamoficial'],
+  ['Urban Coffee', 'Miraflores', 'urbancoffeeperu'],
+  ['El Taller', 'Miraflores', 'eltaller.espacio'],
+  ['Taller Forns', 'Miraflores', 'taller_forns'],
+  ['MiCoAcuarlaIlustracion', 'Miraflores', 'milagros_contreras_mi_co'],
+  ['Mundo de Barro', 'Miraflores', 'mundodebarro'],
+  ['Rima con Lima', 'Miraflores', 'rimaconlima'],
+  ['Arte para crecer', 'Miraflores', 'arteparacrecer'],
+  ['Puerta Roja', 'Miraflores', 'lapuertarojataller'],
+  ['Club de Teatro de Lima', 'Miraflores', 'clubdeteatrodelima'],
+  ['Workshop', 'Miraflores', 'workshop.centroartistico'],
+  ['LMS | Escuela de Técnica Vocal y Música', 'Miraflores', 'limamusicstudio'],
+  ['Guitarra Lima Academy', 'Miraflores', 'guitarralima.academy'],
+  ['Sibelius Academia', 'Miraflores', 'sibelius.pe']
+]
+const perfilVacio = ([name, district, handle]) => ({ id: `venue-${handle.replace(/[^a-z0-9]+/gi, '-')}`, name, email: '', role: 'instructor', claimed: false,
+  preferences: { interests: [], budget: 0, district, day: '' }, favorites: [], importSource: 'talleres.pdf',
+  studio: { displayName: name, tagline: '', bio: '', link: '', links: { instagram: `https://www.instagram.com/${handle}/` }, accent: 'terracota', accentColor: '', font: 'moderna', layout: 'portada', coverImage: '', gallery: [], district, address: '' } })
+
+test('carga-locales-demo: completa fichas vacías, corrige nombres, archiva fuera de zona y agrega sesiones sin duplicar',async()=>{
+  const reclamado = { ...perfilVacio(['Mundo de Barro', 'Miraflores', 'mundodebarro']), claimed: true, studio: { displayName: 'Mundo de Barro (oficial)', bio: '', links: { instagram: 'https://www.instagram.com/mundodebarro/' } } }
+  const otroId = { ...perfilVacio(['Casona', 'Barranco', 'casonatrazzo']), id: 'uid-casona' }
+  const users = [...PDF.filter(([, , h]) => h !== 'mundodebarro' && h !== 'casonatrazzo').map(perfilVacio), reclamado, otroId]
+  const fake = fakeMongo({ users, workshops: [], bookings: [], reviews: [], feedback: [] })
+  const mongo = await openMongoStore({ ...env, MONGODB_SEED_CATALOG: 'true' }, { connect: () => fake.client })
+  const u = id => fake.data.users.find(x => x.id === id)
+  // Datos investigados en las fichas vacías; nombres del PDF corregidos.
+  assert.ok(u('venue-wagnertalleresdearte').studio.bio.length > 20)
+  assert.equal(u('venue-wagnertalleresdearte').name, 'Wagner Talleres de Arte')
+  assert.equal(u('venue-milagros-contreras-mi-co').name, 'MiCo Acuarela & Ilustración')
+  assert.ok(u('venue-peruacademyofart').studio.coverImage)
+  // Los 4 de fuera de zona quedan archivados.
+  for (const id of ['venue-taller-magenta', 'venue-ampayyuraq', 'venue-lapuertarojataller', 'venue-workshop-centroartistico']) assert.equal(u(id).archived, true, id)
+  // Un perfil reclamado no se toca, aunque tenga campos vacíos.
+  assert.deepEqual([u('venue-mundodebarro').studio.displayName, u('venue-mundodebarro').studio.bio, u('venue-mundodebarro').studio.coverImage, u('venue-mundodebarro').name], ['Mundo de Barro (oficial)', '', undefined, 'Mundo de Barro'])
+  // Mismo Instagram con otro id: no se duplica, y la sesión de ejemplo se asigna a ese perfil.
+  assert.equal(fake.data.users.filter(x => (x.studio?.links?.instagram || '').includes('casonatrazzo')).length, 1)
+  assert.equal(fake.data.workshops.find(w => w.id === 'w-casonatrazzo').instructorId, 'uid-casona')
+  assert.equal(fake.data.workshops.length, 24)
+  assert.equal(fake.data.users.length, 39)
+  // Fichas básicas: sin información verificada, sin sesiones.
+  assert.equal(u('venue-taller320-barranco').verified, false)
+  // Idempotente.
+  assert.deepEqual(Object.values(planMigration(mongo.store, { insert: true }).report).filter(Boolean), [])
+
+  // Directorio: muestra fichas con y sin sesiones, nunca las archivadas.
+  const app = createApp(mongo.store, { mode: 'firebase-mongo', verifyIdToken: async () => ({ uid: 'venue-mundodebarro', email: 'x@x.pe' }) })
+  const server = app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r))
+  const get = async (path) => (await (await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { headers: { Authorization: 'Bearer t' } })).json())
+  try {
+    const all = (await get('/instructors')).items
+    assert.equal(all.length, 35)
+    assert.equal(all.some(x => x.id === 'venue-taller-magenta'), false)
+    assert.ok(all.find(x => x.id === 'venue-taller320-barranco' && x.workshopCount === 0 && !x.verified))
+    assert.ok((await get('/instructors?district=Barranco')).items.every(x => x.district === 'Barranco'))
+    assert.ok((await get('/instructors?q=ceramica')).items.length >= 1)
+    const archived = await fetch(`http://127.0.0.1:${server.address().port}/api/instructors/venue-ampayyuraq`, { headers: { Authorization: 'Bearer t' } })
+    assert.equal(archived.status, 404)
   } finally { await new Promise(r => server.close(r)) }
 })

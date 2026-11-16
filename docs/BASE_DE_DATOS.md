@@ -138,7 +138,7 @@ Hoy el rol vive en MongoDB. Si se quiere que también viaje dentro del token, se
    FIREBASE_PROJECT_ID=hobbiz-597c5
    ```
 6. `frontend/.env`: copia `frontend/.env.example`. Ya trae la configuración pública de `hobbiz-597c5`. Para usar Google Maps en toda la app (también en "Cerca de mí") agrega `VITE_GOOGLE_MAPS_API_KEY` (Maps JavaScript API). Sin clave se usa Leaflet y OpenStreetMap.
-7. Ejecuta `npm run db:check`. Debe mostrar ✔ en Atlas y en Firebase, y listar la migración que se aplicará: talleres del MVP anterior que se ocultan, coordenadas y montos que se completan.
+7. Si usan `MONGODB_SEED_CATALOG=false`, carga los locales una vez con `npm run db:seed` (prueba antes con `npm run db:seed -- --dry-run`). Luego ejecuta `npm run db:check`. Debe mostrar ✔ en Atlas y en Firebase, y listar la migración que se aplicará: talleres del MVP anterior que se ocultan, coordenadas y montos que se completan.
 8. Ejecuta `npm run dev`. En la consola del backend aparece `[mongo] Migración aplicada: {...}` la primera vez.
 9. **Usuarios que ya existen en Firebase** (los 3 de la consola) todavía no tienen perfil en MongoDB. Cada uno debe entrar por **Mi cuenta → Crear una cuenta** con el **mismo correo y contraseña** y elegir su rol. La app detecta que la cuenta ya existe en Firebase, inicia sesión y crea solo el perfil.
 10. Prueba de persistencia: reserva, guarda un taller, deja una reseña, reinicia `npm run dev` y comprueba que todo sigue ahí. También puedes verlo en *Atlas → Browse collections*.

@@ -1,11 +1,24 @@
-import { districts, insideArea, isDistrict, accents } from './data.js'
+import { districts, insideArea, isDistrict, accents, venueSeed, excludedVenueIds } from './data.js'
+
+// Cuenta de Instagram de un perfil (para reconocer el mismo local aunque se haya cargado con otro id).
+export function instagramHandle(user) {
+  try {
+    const url = new URL(user?.studio?.links?.instagram || user?.studio?.link || '')
+    if (!['instagram.com', 'www.instagram.com'].includes(url.hostname.toLowerCase())) return ''
+    return url.pathname.split('/').filter(Boolean)[0]?.toLowerCase() || ''
+  } catch { return '' }
+}
+const empty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
 
 // Migración idempotente de datos existentes en MongoDB al modelo actual (Miraflores/Barranco + mapa).
 // Es una función pura: recibe las colecciones leídas y devuelve qué documentos cambiar. db.js la aplica.
-export function planMigration(store, seed = null) {
+// `insert`: además de corregir, inserta las fichas de locales que falten (MONGODB_SEED_CATALOG=true o npm run db:seed).
+export function planMigration(store, { seed = venueSeed(), insert = false } = {}) {
   const changed = { users: new Map(), workshops: new Map(), bookings: new Map() }
-  const report = { coordsRenamed: 0, coordsFromDistrict: 0, outOfArea: 0, orphaned: 0, usersFixed: 0, bookingsAmount: 0, seededUsers: 0, seededWorkshops: 0 }
+  const report = { coordsRenamed: 0, coordsFromDistrict: 0, outOfArea: 0, orphaned: 0, usersFixed: 0, bookingsAmount: 0, venuesEnriched: 0, venuesArchived: 0, seededUsers: 0, seededWorkshops: 0 }
   const userIds = new Set(store.users.map(u => u.id))
+  const seedById = new Map(seed.users.map(u => [u.id, u]))
+  const seedByHandle = new Map(seed.users.map(u => [instagramHandle(u), u]))
 
   for (const w of store.workshops) {
     const next = { ...w }
@@ -20,6 +33,7 @@ export function planMigration(store, seed = null) {
       next.locationPrecision = 'distrito'
       report.coordsFromDistrict++
     }
+    if (excludedVenueIds.has(next.instructorId) && next.archivedReason !== 'fuera-de-zona') { next.published = false; next.archivedReason = 'fuera-de-zona'; report.outOfArea++ }
     if (!userIds.has(next.instructorId) && next.archivedReason !== 'sin-tallerista' && next.archivedReason !== 'fuera-de-zona') {
       // Fichas de la semilla vieja (p. ej. "otro-1") que no pertenecen a ninguna cuenta real.
       next.published = false; next.archivedReason = 'sin-tallerista'; report.orphaned++
@@ -37,7 +51,24 @@ export function planMigration(store, seed = null) {
       if (next.studio.district && !isDistrict(next.studio.district)) next.studio.district = ''
       if (!next.studio.links && next.studio.link) next.studio.links = { web: next.studio.link }
     }
-    if (JSON.stringify(next) !== JSON.stringify(u)) { changed.users.set(next.id, next); report.usersFixed++ }
+    const fixed = JSON.stringify(next) !== JSON.stringify(u)
+    if (next.role === 'instructor' && next.claimed === false) {
+      // Locales del PDF fuera de Miraflores/Barranco que una carga anterior insertó: se archivan.
+      if (excludedVenueIds.has(next.id) && !next.archived) { next.archived = true; next.archivedReason = 'fuera-de-zona'; report.venuesArchived++ }
+      // Fichas vacías (p. ej. de backend/scripts/cargar-locales.mjs): se completan SOLO los campos vacíos con la investigación.
+      const base = seedById.get(next.id) || seedByHandle.get(instagramHandle(next))
+      if (base && !next.archived) {
+        const before = JSON.stringify(next)
+        next.studio = { ...(next.studio || {}) }
+        for (const [k, v] of Object.entries(base.studio)) if (empty(next.studio[k]) && !empty(v)) next.studio[k] = v
+        next.studio.links = { ...base.studio.links, ...(next.studio.links || {}) }
+        // Nombres con erratas del PDF ("Wegner", "MiCoAcuarlaIlustracion"...) se reemplazan por el nombre verificado.
+        if (next.importSource === 'talleres.pdf' && next.name !== base.name) { next.name = base.name; if (next.studio.displayName !== base.studio.displayName) next.studio.displayName = base.studio.displayName }
+        if (base.verified === false && next.verified === undefined) next.verified = false
+        if (JSON.stringify(next) !== before) report.venuesEnriched++
+      }
+    }
+    if (JSON.stringify(next) !== JSON.stringify(u)) { changed.users.set(next.id, next); if (fixed) report.usersFixed++ }
   }
 
   const workshopsById = new Map([...store.workshops, ...changed.workshops.values()].map(w => [w.id, w]))
@@ -47,12 +78,19 @@ export function planMigration(store, seed = null) {
     changed.bookings.set(b.id, { ...b, unitPrice: price, amount: price * b.seats }); report.bookingsAmount++
   }
 
-  // Fichas de los 24 talleres reales: solo se insertan las que faltan, nunca se pisan las editadas.
+  // Fichas de los locales: solo se insertan las que faltan, nunca se pisan las editadas. Un local que ya existe
+  // con otro id pero el mismo Instagram se reutiliza (sus sesiones se asignan a ese perfil).
   const inserts = { users: [], workshops: [] }
-  if (seed) {
+  if (insert) {
+    const ownerByHandle = new Map(store.users.filter(u => u.role === 'instructor').map(u => [instagramHandle(u), u.id]).filter(([h]) => h))
+    const owner = new Map()
+    for (const u of seed.users) {
+      const existing = userIds.has(u.id) ? u.id : ownerByHandle.get(instagramHandle(u))
+      if (existing) { owner.set(u.id, existing); continue }
+      inserts.users.push(u); owner.set(u.id, u.id); report.seededUsers++
+    }
     const existingWorkshops = new Set(store.workshops.map(w => w.id))
-    for (const u of seed.users.filter(u => u.id.startsWith('venue-') && !userIds.has(u.id))) { inserts.users.push(u); report.seededUsers++ }
-    for (const w of seed.workshops.filter(w => w.instructorId.startsWith('venue-') && !existingWorkshops.has(w.id))) { inserts.workshops.push(w); report.seededWorkshops++ }
+    for (const w of seed.workshops.filter(w => !existingWorkshops.has(w.id))) { inserts.workshops.push({ ...w, instructorId: owner.get(w.instructorId) || w.instructorId }); report.seededWorkshops++ }
   }
   return { updates: { users: [...changed.users.values()], workshops: [...changed.workshops.values()], bookings: [...changed.bookings.values()] }, inserts, report }
 }

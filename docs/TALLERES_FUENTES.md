@@ -44,9 +44,9 @@ Precios, fechas y cupos de las sesiones son **datos de ejemplo** (`sampleData: t
 | [@lapuertarojataller](https://www.instagram.com/lapuertarojataller/) | Sede en Av. Arequipa 3505, San Isidro. |
 | [@workshop.centroartistico](https://www.instagram.com/workshop.centroartistico/) | Sede en Av. José de la Torre Ugarte 166, Lince. |
 
-## Pendientes de verificación (no se publicaron)
+## Pendientes de verificación (solo ficha básica, sin sesiones)
 
-No se encontró información pública fuera de Instagram que confirme qué talleres ofrecen o dónde quedan. Para no inventar contenido, quedan fuera hasta que el equipo revise cada perfil o el propio tallerista cree su cuenta y publique.
+No se encontró información pública fuera de Instagram que confirme qué talleres ofrecen o dónde quedan. Desde la integración de `carga-locales-demo` aparecen en el **directorio de locales** como "Ficha por completar": solo nombre, distrito y enlace a Instagram, sin sesiones ni datos inventados. Se completan cuando el equipo los revise o cuando el propio local reclame su ficha.
 
 | Perfil | Lo que se encontró |
 |---|---|

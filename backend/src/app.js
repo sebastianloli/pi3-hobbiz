@@ -367,14 +367,29 @@ export function createApp(store = createSeedStore(), options = {}) {
   })
 
   // Perfil público y personalización sencilla del tallerista (sin diseñador arbitrario de HTML).
+  // Directorio de locales y talleristas (Miraflores y Barranco), incluidas las fichas sin sesiones publicadas.
+  app.get('/api/instructors', auth, (req,res) => {
+    const { q='', district='' } = req.query
+    const items=store.users.filter(u=>u.role==='instructor' && !u.archived).map(u=>{
+      const own=store.workshops.filter(w=>w.instructorId===u.id && w.published && w.date>=todayLima())
+      const zone=u.studio?.district || own[0]?.district || u.preferences?.district || ''
+      return { id:u.id, name:u.studio?.displayName || u.name, tagline:u.studio?.tagline || '', district:zone, coverImage:u.studio?.coverImage || '',
+        instagram:u.studio?.links?.instagram || '', claimed:u.claimed!==false, verified:u.verified!==false, workshopCount:own.length,
+        categories:[...new Set(own.map(w=>w.category))] }
+    }).filter(x=>isDistrict(x.district) && (x.workshopCount || x.claimed===false))
+      .filter(x=>!district || x.district===district)
+      .filter(x=>!q || normalize([x.name,x.tagline,...x.categories].join(' ')).includes(normalize(q)))
+      .sort((a,b)=>b.workshopCount-a.workshopCount || a.name.localeCompare(b.name,'es'))
+    res.json({ items, count:items.length })
+  })
   app.get('/api/instructors/:id', auth, (req,res) => {
-    const user=store.users.find(u=>u.id===req.params.id && u.role==='instructor')
+    const user=store.users.find(u=>u.id===req.params.id && u.role==='instructor' && !u.archived)
     if (!user) return error(res,404,'Tallerista no encontrado.')
     const workshops=store.workshops.filter(w=>w.instructorId===user.id && w.published).map(w=>enrich(store,w))
     const rated=workshops.filter(w=>w.rating!==null)
     const ids=new Set(workshops.map(w=>w.id))
     const reviews=store.reviews.filter(r=>ids.has(r.workshopId)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,10).map(r=>({...r,workshopTitle:workshops.find(w=>w.id===r.workshopId)?.title||''}))
-    res.json({ item: {id:user.id, name:user.name, claimed:user.claimed!==false, studio:user.studio||{}, workshopCount:workshops.length, workshops, reviews,
+    res.json({ item: {id:user.id, name:user.name, claimed:user.claimed!==false, verified:user.verified!==false, studio:user.studio||{}, workshopCount:workshops.length, workshops, reviews,
       averageRating: rated.length ? round(rated.reduce((s,w)=>s+w.rating*w.reviewCount,0)/rated.reduce((s,w)=>s+w.reviewCount,0)) : null } })
   })
   // Personalización: el tallerista decide colores, tipografía, distribución, textos, portada y enlaces.

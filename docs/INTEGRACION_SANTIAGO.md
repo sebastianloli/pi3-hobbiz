@@ -39,3 +39,27 @@ La rama tiene un solo commit (*"Completa horarios, reseñas, ubicación y guarda
    - Comprueban que la memoria no cambie si Atlas falla y que los datos persistan al reabrir.
 
 Ver [`BASE_DE_DATOS.md`](BASE_DE_DATOS.md) para el paso a paso de la conexión con `hobbiz-597c5` y `hobbiz-demo`.
+
+---
+
+# Integración de la rama `carga-locales-demo` (14/11/2026)
+
+Un commit (`2ecd555`) que agrega `backend/scripts/cargar-locales.mjs`: carga los 39 locales de `talleres.pdf` en la colección `users` como perfiles de tallerista sin reclamar, con nombre, distrito e Instagram, y los inserta con `$setOnInsert` (no duplica).
+
+| Hallazgo en el script original | Cómo quedó |
+|---|---|
+| Cargaba los **4 locales que están fuera de zona** (Taller Magenta → San Juan de Miraflores, Ampay Yuraq → Surco, La Puerta Roja → San Isidro, Workshop → Lince) | No se cargan. Si ya están en la BD, la migración los **archiva** (`archived: true`) y desaparecen del directorio y de su página. |
+| Creaba fichas **vacías** (sin descripción, foto, dirección ni sesiones). Si se ejecutaba antes que la semilla, los 24 locales investigados quedaban sin datos | La migración completa **solo los campos vacíos** de las fichas no reclamadas con la investigación de `venues.js`, y agrega la sesión de ejemplo de cada uno. |
+| Nombres con erratas del PDF ("Wegner", "MiCoAcuarlaIlustracion", "Kapulitelier"…) | Si la ficha vino de ese script (`importSource: 'talleres.pdf'`), se usa el nombre verificado. |
+| Los perfiles sin sesiones **no se veían en ninguna parte** de la app | Nueva página **Locales** (`/locales`) y endpoint `GET /api/instructors`: 35 locales con su distrito, tipo de taller, sesiones e Instagram. Las 11 fichas sin información verificada se muestran como "Ficha por completar". |
+| Lista de locales y conexión a Mongo **duplicadas** en el script | Una sola fuente (`venues.js`: 24 con información, 11 fichas básicas y 4 excluidos) y un solo `mongoUri()` en `db.js`, que usan el servidor, `db:check` y `db:seed`. |
+| Sin pruebas | `test/mongo.test.js` reproduce una BD cargada con el script original (sus 39 perfiles exactos) y comprueba la migración, el directorio y que una segunda pasada no cambie nada. |
+
+**Cómo usarlo con `MONGODB_SEED_CATALOG=false`** (la configuración que usa el equipo):
+
+```
+npm run db:seed -- --dry-run   # muestra qué agregaría, completaría o archivaría, sin escribir
+npm run db:seed                # lo aplica (se puede repetir sin duplicar)
+```
+
+Las correcciones (completar fichas, archivar las de fuera de zona) se aplican también al arrancar el servidor, aunque `MONGODB_SEED_CATALOG` sea `false`. Lo único que depende de esa variable es **insertar** fichas nuevas.
