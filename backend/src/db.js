@@ -20,7 +20,8 @@ export async function applyPlan(db, store, plan) {
   for (const kind of ['users', 'workshops', 'bookings']) {
     const docs = plan.updates[kind]
     if (docs.length) await db.collection(kind).bulkWrite(docs.map(d => ({ replaceOne: { filter: { id: d.id }, replacement: d } })))
-    for (const d of docs) Object.assign(store[kind].find(x => x.id === d.id), d)
+    // Se reemplaza el documento completo (no se mezcla): así desaparecen también los campos que la migración quitó.
+    for (const d of docs) { const i = store[kind].findIndex(x => x.id === d.id); if (i >= 0) store[kind][i] = d }
   }
   for (const kind of ['users', 'workshops']) {
     const docs = plan.inserts[kind]

@@ -4,13 +4,19 @@ import {existsSync, readFileSync, readdirSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 
 // Credencial de Firebase Admin. Orden de búsqueda:
-// 1) GOOGLE_APPLICATION_CREDENTIALS (ruta absoluta a la cuenta de servicio, fuera de Git);
-// 2) el primer .json dentro de backend/credentials/ (carpeta ignorada por .gitignore).
+// 1) FIREBASE_SERVICE_ACCOUNT_BASE64: el JSON de la cuenta de servicio en base64 (recomendado en Render/Railway);
+// 2) FIREBASE_SERVICE_ACCOUNT_JSON: el JSON tal cual en una sola variable;
+// 3) GOOGLE_APPLICATION_CREDENTIALS: ruta a un archivo (p. ej. un "Secret File" de Render);
+// 4) el primer .json dentro de backend/credentials/ (desarrollo local; carpeta ignorada por .gitignore).
 function credential(env) {
+  const raw = env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8') : env.FIREBASE_SERVICE_ACCOUNT_JSON
+  if (raw) {
+    try { return cert(JSON.parse(raw)) } catch { throw new Error('FIREBASE_SERVICE_ACCOUNT_* no contiene un JSON válido de cuenta de servicio') }
+  }
   if (env.GOOGLE_APPLICATION_CREDENTIALS) return applicationDefault()
   const dir = fileURLToPath(new URL('../credentials/', import.meta.url))
   const file = existsSync(dir) && readdirSync(dir).find(f => f.endsWith('.json'))
-  if (!file) throw new Error('Falta la cuenta de servicio: copia el JSON en backend/credentials/ o define GOOGLE_APPLICATION_CREDENTIALS')
+  if (!file) throw new Error('Falta la cuenta de servicio: define FIREBASE_SERVICE_ACCOUNT_BASE64, o copia el JSON en backend/credentials/')
   return cert(JSON.parse(readFileSync(dir + file, 'utf8')))
 }
 

@@ -15,8 +15,9 @@ const empty = (v) => v === undefined || v === null || v === '' || (Array.isArray
 // `insert`: además de corregir, inserta las fichas de locales que falten (MONGODB_SEED_CATALOG=true o npm run db:seed).
 export function planMigration(store, { seed = venueSeed(), insert = false } = {}) {
   const changed = { users: new Map(), workshops: new Map(), bookings: new Map() }
-  const report = { coordsRenamed: 0, coordsFromDistrict: 0, outOfArea: 0, orphaned: 0, usersFixed: 0, bookingsAmount: 0, venuesEnriched: 0, venuesArchived: 0, seededUsers: 0, seededWorkshops: 0 }
+  const report = { sampleRedated: 0, instructorsApproved: 0, coordsRenamed: 0, coordsFromDistrict: 0, outOfArea: 0, orphaned: 0, usersFixed: 0, bookingsAmount: 0, venuesEnriched: 0, venuesArchived: 0, seededUsers: 0, seededWorkshops: 0 }
   const userIds = new Set(store.users.map(u => u.id))
+  const today = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
   const seedById = new Map(seed.users.map(u => [u.id, u]))
   const seedByHandle = new Map(seed.users.map(u => [instagramHandle(u), u]))
 
@@ -39,6 +40,15 @@ export function planMigration(store, { seed = venueSeed(), insert = false } = {}
       next.published = false; next.archivedReason = 'sin-tallerista'; report.orphaned++
     }
     if (next.enrollmentOpen === undefined) next.enrollmentOpen = true
+    // Sesiones de ejemplo vencidas y sin reservas: se mueven a la próxima semana equivalente (mismo día de la semana),
+    // para que el catálogo de la demo no quede vacío con el paso de las semanas.
+    if (next.sampleData && next.date < today && !store.bookings.some(b => b.workshopId === next.id)) {
+      const d = new Date(`${next.date}T12:00:00Z`)
+      const weeks = Math.floor((Date.parse(`${today}T12:00:00Z`) - d.getTime()) / (7 * 86400000)) + 1
+      d.setUTCDate(d.getUTCDate() + weeks * 7)
+      next.date = d.toISOString().slice(0, 10)
+      report.sampleRedated++
+    }
     if (JSON.stringify(next) !== JSON.stringify(w)) changed.workshops.set(next.id, next)
   }
 
@@ -51,6 +61,8 @@ export function planMigration(store, { seed = venueSeed(), insert = false } = {}
       if (next.studio.district && !isDistrict(next.studio.district)) next.studio.district = ''
       if (!next.studio.links && next.studio.link) next.studio.links = { web: next.studio.link }
     }
+    // Talleristas que ya existían antes de la verificación: quedan aprobados para no bloquear sus cuentas.
+    if (next.role === 'instructor' && next.claimed !== false && !next.instructorStatus) { next.instructorStatus = 'approved'; report.instructorsApproved++ }
     const fixed = JSON.stringify(next) !== JSON.stringify(u)
     if (next.role === 'instructor' && next.claimed === false) {
       // Locales del PDF fuera de Miraflores/Barranco que una carga anterior insertó: se archivan.

@@ -7,11 +7,11 @@
 | E01 | E | Catálogo con nombre, categoría, ubicación, precio y horario | ✅ | Inicio, `/explorar` (lista o mapa) y la ficha. 24 talleres reales de Miraflores y Barranco más 3 de la cuenta demo. Las tarjetas muestran categoría y horario de inicio a fin. |
 | E02 | E | GPS y búsqueda manual en **apartados separados**, y formulario de opinión | ✅ | `/explorar` (búsqueda manual) y `/cerca` (GPS o toque en el mapa) están en la barra inferior. `/opinion` pregunta por la facilidad de uso, las nuevas funciones, qué fue confuso y una recomendación o crítica; se llega desde la cabecera, Perfil y el panel. |
 | E03 | E | Guardar con marcador y ver en Guardados; preferencias | ✅ | El marcador en tarjetas y fichas usa un estado compartido. Solo los clientes guardan, y los talleres ocultos salen de Guardados. Preferencias en Perfil y Mi cuenta. |
-| E04 | E | Reserva: registra, actualiza cupos y confirma | ✅ | Muestra un código de confirmación, actualiza los cupos y aparece en Perfil. Bloquea la sobreventa, las inscripciones cerradas y los talleres ya realizados. |
+| E04 | E | Reserva: registra, actualiza cupos y confirma | ✅ (+ cancelación y máx. 5 cupos por persona) | Muestra un código de confirmación, actualiza los cupos y aparece en Perfil. Bloquea la sobreventa, las inscripciones cerradas y los talleres ya realizados. |
 | E05 | E | Estética, descripciones y links a decisión del tallerista; consulta de estética | ✅ | `/tallerista/perfil`: cuestionario "¿Qué estética quieres?" y control total de color (incluido uno propio), tipografía, distribución, portada, galería y 5 enlaces. Página pública en `/estudio/:id`. El panel invita a personalizar si el perfil está vacío. |
 | E06 | E | Crear con estructura predefinida, de ocasión o recurrente, editar, ver inscritos y monto; agotados ocultos salvo el nombre exacto | ✅ | Editor con campos obligatorios y pin en el mapa. Fecha única o serie semanal. Abrir o cerrar inscripciones. El monto recaudado se calcula con el precio pagado en cada reserva. Un taller agotado aparece solo al buscar el nombre exacto del taller o del local, con la etiqueta "No hay más cupos". |
 | E07 | E | Reseñas públicas, nota sobre 5 y promedio automático | ✅ | Solo reseña quien reservó; se puede editar la reseña propia. Las reseñas son visibles para clientes y talleristas, también en la página del estudio. |
-| A01 | Alcance | Registro e inicio de sesión **obligatorio**, con "Recordarme" | ✅ | Guardas en el router y la API. Recordarme: 30 días con `localStorage` o persistencia local de Firebase; sin la casilla, `sessionStorage` y 8 horas. Si la sesión se pierde, vuelve al ingreso. |
+| A01 | Alcance | Registro e inicio de sesión **obligatorio**, con "Recordarme" | ✅ (+ verificación de correo, recuperar contraseña, aprobación de talleristas) | Guardas en el router y la API. Recordarme: 30 días con `localStorage` o persistencia local de Firebase; sin la casilla, `sessionStorage` y 8 horas. Si la sesión se pierde, vuelve al ingreso. |
 | A02 | Alcance | Filtros por categoría, ubicación, precio y horario | ✅ | Categoría, distrito, precio máximo, día y franja (mañana, tarde o noche). La búsqueda ignora tildes. |
 | A03 | Alcance | Buscar talleres cerca de mí | ✅ | Distancia real hasta el pin de cada taller, con radio de 500 m a 5 km y círculo en el mapa. 9 talleres reales tienen pin aproximado y así se indica. |
 | A04 | Alcance | Solo Miraflores y Barranco | ✅ | El backend valida el pin dentro del **polígono** de cada distrito; se rechazan puntos en Surquillo, Surco, Chorrillos o el mar. Los contornos se dibujan en el mapa. |
@@ -33,15 +33,9 @@
 
 ## Verificaciones que faltan para declarar EPY2 completamente cumplido
 
-1. **Pruebas de instalación en Visual Studio Code:** `npm install`, `npm test` y `npm run build` en un ordenador con npm y acceso a Registry.
-2. **Prueba Firebase real:** activar Email/Password, registrar un cliente y tallerista, cerrar/abrir sesión y verificar que las rutas de ambos roles respetan la autorización.
-3. **Prueba MongoDB real:** crear un taller, reservar, guardar, comentar, reiniciar el servidor y confirmar persistencia de cada dato.
-4. **Prueba funcional cruzada:** un cliente reserva un taller nuevo y el tallerista ve un inscrito adicional; confirmar que el aforo restante sea correcto.
-5. **Validación de usabilidad:** al menos una persona que no conoce el prototipo debe encontrar, reservar y valorar un taller con observación de dificultades.
-6. **Requisito de personalización libre:** acordar con el docente si una selección controlada de paletas/biografía/enlace satisface la exigencia; si no, ampliar el editor dentro de las 16 semanas.
-7. **Robustez MongoDB multiinstancia:** si se publica en más de un proceso o servicio, implementar reservas transaccionales para impedir sobreventa entre instancias. La versión entregada es de prototipo local de una instancia.
-8. **Ubicación:** decidir con el equipo si usar el centro del distrito es suficientemente preciso para la demostración de “cerca de mí”; si se necesita ubicación exacta del taller, almacenar sus coordenadas reales o geocodificar su dirección.
-9. **Series recurrentes:** si se exigen aperturas/cierres periódicos automáticos o edición conjunta de una serie, esa automatización sigue pendiente.
-10. **Accesibilidad y seguridad:** revisar navegación por teclado/lectores de pantalla, límites de peticiones y manejo seguro de imágenes antes de cualquier despliegue público.
+1. **Prueba con Firebase y Atlas reales**, ya publicada (ver `DESPLIEGUE.md`, sección 4): registro con verificación de correo, reserva y cancelación, reseña, aprobación de un tallerista y persistencia tras reiniciar.
+2. **Validación de usabilidad:** al menos una persona que no conoce la plataforma debe encontrar, reservar y valorar un taller, observando sus dificultades.
+3. **Personalización libre (E05):** confirmar con el docente que el cuestionario de estética más el control de colores, tipografía, distribución, fotos y enlaces cumple la exigencia.
+4. **Escala:** con varias instancias del backend harían falta reservas atómicas en MongoDB. Para el prototipo se usa una sola instancia.
 
-**Validación realizada en esta entrega:** revisión estática del código, `node --check` de JavaScript y scripts Vue, listado de rutas y comprobación de ZIP; **no se pudo ejecutar `npm install` ni el test runner en el entorno de generación porque el registro npm no estaba accesible**. Los tests automatizados quedan incluidos para ejecutarlos localmente.
+**Validación automatizada (19/11/2026):** `npm test` pasa los 39 tests, que incluyen la seguridad, las reservas y su cancelación, las reseñas, la verificación de talleristas, la migración y los bloqueos de arranque en producción. `npm run build` compila sin errores.

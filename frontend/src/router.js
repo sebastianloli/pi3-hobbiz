@@ -18,6 +18,7 @@ import FlowGuide from './views/FlowGuide.vue'
 import NearMe from './views/NearMe.vue'
 import StudioPublic from './views/StudioPublic.vue'
 import Locales from './views/Locales.vue'
+import Admin from './views/Admin.vue'
 import { state, homeFor } from './lib/state'
 
 const routes = [
@@ -27,6 +28,7 @@ const routes = [
   { path:'/cerca', component:NearMe, meta:{ role:'client' } },
   { path:'/estudio/:id', component:StudioPublic },
   { path:'/locales', component:Locales },
+  { path:'/admin', component:Admin, meta:{ admin:true } },
   { path:'/tallerista/perfil',component:InstructorStudio,meta:{role:'instructor'} },
   { path:'/', component:Home, meta:{ role:'client' } },
   { path:'/explorar', component:Explore, meta:{ role:'client' } },
@@ -49,6 +51,7 @@ const router=createRouter({ history:createWebHistory(), routes, scrollBehavior:(
 router.beforeEach((to)=>{
   if(to.meta.public) return true
   if(!state.user) return { path:'/cuenta', query: to.fullPath!=='/' ? { redirect: to.fullPath } : {} }
+  if(to.meta.admin && !state.user.isAdmin) return homeFor(state.user)
   if(to.meta.role && to.meta.role!==state.user.role) return homeFor(state.user)
   return true
 })

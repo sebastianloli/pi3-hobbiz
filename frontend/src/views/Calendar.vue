@@ -1,7 +1,7 @@
 <script setup>
 import {ref,onMounted,computed} from 'vue'
-import {authRequest,notify,dateText,niceTime,state} from '../lib/state'
-const bookings=ref([]),month=ref(new Date().toISOString().slice(0,7)),loading=ref(true)
+import {authRequest,notify,dateText,niceTime,state,todayLima} from '../lib/state'
+const bookings=ref([]),month=ref(todayLima().slice(0,7)),loading=ref(true)
 onMounted(async()=>{if(!state.user){loading.value=false;return}try{bookings.value=(await authRequest('/me/bookings')).items.filter(b=>b.status==='confirmada')}catch(e){notify(e.message)}finally{loading.value=false}})
 const filtered=computed(()=>bookings.value.filter(b=>b.workshop?.date?.startsWith(month.value)).sort((a,b)=>a.workshop.date.localeCompare(b.workshop.date)))
 const days=computed(()=>{

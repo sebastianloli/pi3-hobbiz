@@ -34,6 +34,9 @@ Navegador (Vue) ──login──► Firebase Auth ──ID token──┐
   email: "maria@correo.pe",          // índice único (si no está vacío)
   role: "client" | "instructor",
   claimed: true,                     // false = ficha de taller real aún no reclamada (sin cuenta)
+  emailVerified: true,               // copia de email_verified del token de Firebase
+  instructorStatus: "pending" | "approved" | "rejected",   // solo talleristas; publica solo si "approved"
+  verificationRequest: { claimVenueId, claimVenueName, message, contact, submittedAt },
   preferences: { interests: ["Cerámica"], budget: 80, district: "Miraflores", day: "sábado" },
   favorites: ["w-mundodebarro", "t-1"],   // ids de talleres guardados (exigencia E3)
   studio: {                          // solo talleristas (exigencia E5)
@@ -98,15 +101,13 @@ reviews:  { id, userId, workshopId, name, stars: 1..5, comment, createdAt }  // 
 ### Fichas de talleres reales "por reclamar"
 Los 24 talleres reales de `talleres.pdf` se cargan como usuarios `role:"instructor"` con `claimed:false`, **sin correo ni contraseña**. Nadie puede iniciar sesión con ellos. Cuando el negocio real quiera administrar su ficha:
 
-1. Crea su cuenta normal de tallerista.
-2. Solicita el reclamo (para el prototipo, por correo o formulario al equipo; la verificación de identidad está **fuera del alcance**).
-3. El equipo ejecuta una actualización en MongoDB que traslada los talleres y la personalización:
-   ```js
-   db.workshops.updateMany({ instructorId: "venue-mundodebarro" }, { $set: { instructorId: "<uid nuevo>" } })
-   const ficha = db.users.findOne({ id: "venue-mundodebarro" })
-   db.users.updateOne({ id: "<uid nuevo>" }, { $set: { studio: ficha.studio, claimed: true } })
-   db.users.deleteOne({ id: "venue-mundodebarro" })
-   ```
+Desde la versión con verificación de talleristas, el reclamo **ya no es manual**:
+
+1. La persona crea su cuenta de tallerista y verifica su correo.
+2. En su Resumen envía la solicitud de verificación y elige "mi taller ya está en el directorio" → el local.
+3. El equipo la aprueba en `/admin`, con la casilla "Traspasarle la ficha" marcada. La API pasa las sesiones del local a la cuenta nueva, completa su perfil con la ficha y archiva la ficha original (`archived: true`, `archivedReason: 'reclamado'`).
+
+Detalles en [`VERIFICACION_TALLERISTAS.md`](VERIFICACION_TALLERISTAS.md).
 
 ### Rol en Firebase (opcional, recomendado)
 Hoy el rol vive en MongoDB. Si se quiere que también viaje dentro del token, se puede asignar un *custom claim* con el Admin SDK: `admin.auth().setCustomUserClaims(uid, { role: 'instructor' })`. Esto evita una lectura a la base de datos por petición.
@@ -123,10 +124,10 @@ Hoy el rol vive en MongoDB. Si se quiere que también viaje dentro del token, se
 > **Seguridad primero.** Si la clave privada de la cuenta de servicio se compartió por chat o en capturas, **revócala**: *Firebase Console → Configuración del proyecto → Cuentas de servicio → Administrar permisos (Google Cloud) → Claves → eliminar*, y genera una nueva. Nunca la subas a Git.
 
 1. **Firebase → Authentication → Método de acceso:** habilita *Correo electrónico/contraseña*.
-2. **Firebase → Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada.** Guarda el JSON en `backend/credentials/`. La carpeta está ignorada por Git; no hace falta tocar `GOOGLE_APPLICATION_CREDENTIALS`.
+2. **Firebase → Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada.** Para desarrollo local guarda el JSON en `backend/credentials/`. En Render se pasa como `FIREBASE_SERVICE_ACCOUNT_BASE64` (ver `DESPLIEGUE.md`). La carpeta está ignorada por Git; no hace falta tocar `GOOGLE_APPLICATION_CREDENTIALS`.
 3. **Atlas → Database & Network Access:**
    - Crea un usuario de BD con rol *readWrite* sobre `hobbiz`.
-   - Agrega tu IP. Para una demostración en otra red puedes añadir temporalmente `0.0.0.0/0` y quitarlo después.
+   - Agrega tu IP. Con el backend publicado en Render hace falta `0.0.0.0/0`, porque su IP no es fija; la protección es una contraseña fuerte y un usuario solo para la API.
 4. **Atlas → hobbiz-demo → Connect → Drivers:** copia la cadena `mongodb+srv://…`.
 5. Crea `backend/.env` a partir de `backend/.env.example`:
    ```

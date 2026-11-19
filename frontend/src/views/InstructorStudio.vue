@@ -5,9 +5,10 @@ import {ensureInstructor} from '../lib/instructor'
 import {authRequest,notify,state} from '../lib/state'
 import {accentHex,accentNames,fontStacks,fontNames,layoutNames,linkNames,styleQuiz,studioColor} from '../lib/studio'
 import OwnerTabs from '../components/OwnerTabs.vue'
+import { resizeImage } from '../lib/images'
 const busy=ref(false),quiz=ref(''),galleryUrl=ref(''),coverUrl=ref('')
 function useCoverUrl(){const u=coverUrl.value.trim();if(!/^https:\/\/\S+$/i.test(u))return notify('El enlace debe empezar con https://');form.coverImage=u;coverUrl.value=''}
-function uploadCover(e){const f=e.target.files?.[0];if(!f)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>1_100_000)return notify('Usa JPG, PNG o WebP de hasta 1 MB.');const r=new FileReader();r.onload=()=>{form.coverImage=String(r.result)};r.readAsDataURL(f)}
+async function uploadCover(e){const f=e.target.files?.[0];if(!f)return;try{form.coverImage=await resizeImage(f)}catch(err){notify(err.message)}}
 const form=reactive({displayName:'',tagline:'',bio:'',accent:'terracota',accentColor:'',font:'moderna',layout:'portada',coverImage:'',gallery:[],district:'',address:'',links:{web:'',instagram:'',facebook:'',tiktok:'',whatsapp:''}})
 onMounted(async()=>{try{await ensureInstructor();const s=state.user?.studio||{};Object.assign(form,{...s,links:{...form.links,...(s.links||{}),...(s.link&&!s.links?.web?{web:s.link}:{})},gallery:[...(s.gallery||[])]})}catch(e){notify(e.message)}})
 function applyQuiz(option){quiz.value=option.id;Object.assign(form,option.set,{accentColor:''});notify(`Estilo "${option.label}" aplicado. Puedes ajustar cada detalle.`)}

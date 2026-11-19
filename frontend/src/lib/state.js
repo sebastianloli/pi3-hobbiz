@@ -15,7 +15,7 @@ export const state=reactive({
   token:store.read(),user:null,
   mode:'demo',
   meta:{categories:['Arte','Cerámica','Música','Escritura','Artes escénicas','Bienestar','Oficios','Otros'],districts:['Miraflores','Barranco'],districtCenters:{},districtBounds:{},images:[],accents:[],fonts:[],layouts:[]},
-  ready:false,busy:false,toast:'',favoriteIds:[]
+  ready:false,busy:false,toast:'',favoriteIds:[],waking:false
 })
 let clearToast
 export function notify(text){state.toast=text;if(clearToast)clearTimeout(clearToast);clearToast=setTimeout(()=>state.toast='',4500)}
@@ -33,6 +33,15 @@ export const authRequest=async(path,opts={})=>{
 export async function refreshFavorites(){if(state.user?.role!=='client'){state.favoriteIds=[];return}try{state.favoriteIds=(await authRequest('/me/favorites')).items.map(w=>w.id)}catch{}}
 export async function toggleFavorite(id){const saved=state.favoriteIds.includes(id);await authRequest(`/me/favorites/${id}`,{method:saved?'DELETE':'POST'});state.favoriteIds=saved?state.favoriteIds.filter(x=>x!==id):[...state.favoriteIds,id];return !saved}
 async function firebase(){return (await import('./firebase.js')).getFirebaseAuth()}
+// Mensajes de Firebase Authentication en español.
+const firebaseMessages={
+  'auth/invalid-credential':'Correo o contraseña incorrectos.','auth/wrong-password':'Correo o contraseña incorrectos.','auth/user-not-found':'Correo o contraseña incorrectos.',
+  'auth/invalid-email':'El correo no es válido.','auth/weak-password':'La contraseña debe tener al menos 8 caracteres.','auth/missing-password':'Escribe tu contraseña.',
+  'auth/too-many-requests':'Demasiados intentos. Espera unos minutos o restablece tu contraseña.','auth/network-request-failed':'Sin conexión con Firebase. Revisa tu internet.',
+  'auth/user-disabled':'Esta cuenta fue inhabilitada.','auth/email-already-in-use':'Ese correo ya tiene una cuenta. Inicia sesión.','auth/missing-email':'Escribe tu correo.',
+}
+const firebaseError=(e)=>firebaseMessages[e?.code]?Object.assign(new Error(firebaseMessages[e.code]),{code:e.code}):e
+const friendly=(fn)=>async(...args)=>{try{return await fn(...args)}catch(e){throw firebaseError(e)}}
 async function updateFirebaseToken(){
   const auth=await firebase()
   await auth.authStateReady()
@@ -43,7 +52,7 @@ async function firebasePersistence(auth,remember){
   const {setPersistence,browserLocalPersistence,browserSessionPersistence}=await import('firebase/auth')
   await setPersistence(auth,remember?browserLocalPersistence:browserSessionPersistence)
 }
-export async function login(email,password,remember=false){
+export const login=friendly(async function(email,password,remember=false){
   keepEmail(email,remember)
   if(state.mode==='firebase-mongo'){
     const {signInWithEmailAndPassword}=await import('firebase/auth')
@@ -56,32 +65,65 @@ export async function login(email,password,remember=false){
   }
   const {token,user}=await request('/auth/login',{method:'POST',body:{email,password,remember}})
   state.token=token;state.user=user;store.write(token,remember);refreshFavorites();return user
-}
-export async function register(form,remember=false){
+})
+export const register=friendly(async function(form,remember=false){
   keepEmail(form.email,remember)
   if(state.mode==='firebase-mongo'){
     const {createUserWithEmailAndPassword,signInWithEmailAndPassword}=await import('firebase/auth')
     const auth=await firebase()
     await firebasePersistence(auth,remember)
-    try{await createUserWithEmailAndPassword(auth,form.email,form.password)}
+    let created=false
+    try{await createUserWithEmailAndPassword(auth,form.email,form.password);created=true}
     catch(e){if(e.code!=='auth/email-already-in-use')throw e;await signInWithEmailAndPassword(auth,form.email,form.password)}
+    // Correo de verificación (Firebase lo envía; el enlace confirma que el correo es de la persona).
+    if(created){const {sendEmailVerification}=await import('firebase/auth');try{await sendEmailVerification(auth.currentUser)}catch{}}
     await updateFirebaseToken()
-    const {user}=await authRequest('/account',{method:'POST',body:{name:form.name,role:form.role}})
-    state.user=user;refreshFavorites();return user
+    try{const {user}=await authRequest('/account',{method:'POST',body:{name:form.name,role:form.role}});state.user=user;refreshFavorites();return user}
+    catch(e){const {signOut}=await import('firebase/auth');await signOut(auth);state.token='';throw e}
   }
   const {token,user}=await request('/auth/register',{method:'POST',body:{...form,remember}})
   state.token=token;state.user=user;store.write(token,remember);refreshFavorites();return user
+})
+// Recuperar contraseña: Firebase envía un enlace al correo (en modo demo no hay correos).
+export const resetPassword=friendly(async function(email){
+  if(state.mode!=='firebase-mongo')throw new Error('En el modo demo no se envían correos. Usa las cuentas de demostración.')
+  const {sendPasswordResetEmail}=await import('firebase/auth')
+  await sendPasswordResetEmail(await firebase(),email)
+})
+// Verificación de correo: reenviar el enlace y, tras abrirlo, renovar el token para que el backend lo vea.
+export const resendVerification=friendly(async function(){
+  const {sendEmailVerification}=await import('firebase/auth')
+  const auth=await firebase()
+  if(auth.currentUser)await sendEmailVerification(auth.currentUser)
+})
+export async function refreshVerification(){
+  if(state.mode!=='firebase-mongo')return state.user?.emailVerified
+  const auth=await firebase()
+  await auth.currentUser?.reload()
+  state.token=auth.currentUser?await auth.currentUser.getIdToken(true):''
+  state.user=(await authRequest('/auth/me')).user
+  return state.user.emailVerified
 }
-export const demoAccounts={client:'cliente@hobbiz.pe',instructor:'tallerista@hobbiz.pe',password:'Demo12345!'}
+export async function reloadMe(){state.user=(await authRequest('/auth/me')).user;return state.user}
+export const demoAccounts={client:'cliente@hobbiz.pe',instructor:'tallerista@hobbiz.pe',admin:'admin@hobbiz.pe',password:'Demo12345!'}
 export async function logout(){
   if(state.mode==='firebase-mongo'){
     const {signOut}=await import('firebase/auth');await signOut(await firebase())
   }else{try{if(state.token)await authRequest('/auth/logout',{method:'POST'})}catch{}}
   state.token='';state.user=null;state.favoriteIds=[];store.clear()
 }
+// El servidor gratuito (Render) se duerme tras 15 min sin uso: el primer pedido puede tardar ~1 minuto.
+async function health(){
+  for(let attempt=0;attempt<8;attempt++){
+    try{const h=await request('/health');state.waking=false;return h}
+    catch(e){if(e.status!==0&&e.status<500)throw e;state.waking=true;await new Promise(r=>setTimeout(r,attempt<2?2000:6000))}
+  }
+  state.waking=false
+  throw new Error('El servidor de Hobbiz no responde. Inténtalo en unos minutos.')
+}
 export async function initialize(){
   try{
-    const health=await request('/health');state.mode=health.mode
+    const h=await health();state.mode=h.mode
     state.meta=await request('/meta')
     if(state.mode==='firebase-mongo')await updateFirebaseToken()
     // Sin inicio de sesión automático: si no hay token válido, el router envía a /cuenta.
@@ -94,5 +136,7 @@ export function money(amount){return `S/ ${Number(amount||0).toFixed(0)}`}
 export function dateText(date){return date?new Date(`${date}T12:00:00`).toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'short'}):''}
 export function niceTime(str){if(!str)return '';const [hh,mm]=str.split(':').map(Number);return `${hh%12||12}:${String(mm).padStart(2,'0')} ${hh>=12?'p. m.':'a. m.'}`}
 export function demoImage(id){return state.meta.images.includes(id)?id:'/images/ceramica.jpg'}
-export const homeFor=(user)=>user?.role==='instructor'?'/tallerista':'/'
+export const homeFor=(user)=>user?.role==='instructor'?'/tallerista':user?.isAdmin?'/admin':'/'
+// Fecha de hoy en Lima (UTC-5), igual que el backend.
+export const todayLima=()=>new Date(Date.now()-5*3600e3).toISOString().slice(0,10)
 export function whenReady(){return state.ready?Promise.resolve():new Promise(r=>{const t=setInterval(()=>{if(state.ready){clearInterval(t);r()}},20)})}

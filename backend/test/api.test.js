@@ -96,24 +96,34 @@ test('reservas actualizan cupos y previenen sobreventa',async()=>withApi(async a
   const booking=await api('/workshops/t-1/bookings',{method:'POST',token,body:{seats:1}})
   assert.equal(booking.status,201)
   assert.equal((await api('/workshops/t-1',{token})).data.item.available,original-1)
-  const over=await api('/workshops/t-1/bookings',{method:'POST',token,body:{seats:10}})
+  const over=await api('/workshops/t-1/bookings',{method:'POST',token,body:{seats:5}})
   assert.equal(over.status,409)
+  assert.match(over.data.error,/máximo 5 cupos/)
   assert.ok((await api('/me/bookings',{token})).data.items.some(b=>b.id===booking.data.item.id))
 }))
 
-test('reseñas requieren reserva y actualizan el promedio',async()=>withApi(async api=>{
+test('reseñas requieren reserva y taller terminado, y actualizan el promedio',async()=>withApi(async api=>{
   const registration=await api('/auth/register',{method:'POST',body:{name:'Ana Rivera',email:'ana@example.com',password:'Pass12345',role:'client'}})
   const token=registration.data.token
-  const denied=await api('/workshops/t-2/reviews',{method:'POST',token,body:{stars:5,comment:'Gran clase de pintura'}})
-  assert.equal(denied.status,403)
-  const book=await api('/workshops/t-2/bookings',{method:'POST',token,body:{seats:1}})
-  assert.equal(book.status,201)
-  const review=await api('/workshops/t-2/reviews',{method:'POST',token,body:{stars:5,comment:'Gran clase de pintura'}})
+  // Sin reserva no se puede reseñar.
+  assert.equal((await api('/workshops/t-0/reviews',{method:'POST',token,body:{stars:5,comment:'Gran clase de collage'}})).status,403)
+  // Con reserva, pero el taller aún no ocurre: se espera a que termine.
+  assert.equal((await api('/workshops/t-2/bookings',{method:'POST',token,body:{seats:1}})).status,201)
+  const early=await api('/workshops/t-2/reviews',{method:'POST',token,body:{stars:5,comment:'Gran clase de pintura'}})
+  assert.equal(early.status,409)
+  // cliente-1 reservó t-0, que ya ocurrió: puede reseñar y editar su reseña (se conserva la fecha original).
+  const c=(await client(api)).data.token
+  const review=await api('/workshops/t-0/reviews',{method:'POST',token:c,body:{stars:4,comment:'Muy entretenido y creativo'}})
   assert.equal(review.status,201)
-  const w=(await api('/workshops/t-2',{token})).data.item
-  assert.equal(w.reviewCount,2)
-  assert.equal(w.rating,4.5)
-  assert.equal((await api('/workshops/t-2/reviews',{token})).data.items.length,2)
+  assert.equal(review.data.item.mine,true)
+  assert.equal(review.data.item.userId,undefined)
+  const edit=await api('/workshops/t-0/reviews',{method:'POST',token:c,body:{stars:2,comment:'Lo pensé mejor: regular'}})
+  assert.equal(edit.data.item.createdAt,review.data.item.createdAt)
+  assert.ok(edit.data.item.updatedAt)
+  const w=(await api('/workshops/t-0',{token})).data.item
+  assert.deepEqual([w.rating,w.reviewCount,w.past],[2,1,true])
+  // Ya ocurrió: no aparece en el catálogo, pero su ficha sigue accesible.
+  assert.equal((await api('/workshops',{token})).data.items.some(x=>x.id==='t-0'),false)
 }))
 
 const validWorkshop=()=>({ title:'Taller de mosaico', summary:'Explora el arte del mosaico decorativo.',description:'Durante esta sesión crearás una composición decorativa guiada paso a paso.',category:'Arte',price:50,district:'Barranco',venue:'Taller Mosaico',address:'Jr. Unión 120, Barranco',lat:-12.1478,lon:-77.0212,date:future(30),startsAt:'10:00',endsAt:'12:00',capacity:10,level:'Principiante',materialsIncluded:'Teselas y adhesivos',materialsBring:'Mandil',image:'/images/arte.jpg'})
@@ -130,7 +140,7 @@ test('tallerista solo puede publicar fichas completas y editar las suyas',async(
   const edit=await api(`/instructor/workshops/${id}`,{method:'PUT',token,body:{...valid,price:55}})
   assert.equal(edit.status,200)
   assert.equal(edit.data.item.price,55)
-  assert.equal((await api('/instructor/workshops',{token})).data.items.length,4)
+  assert.equal((await api('/instructor/workshops',{token})).data.items.length,5)
   const other=(await client(api)).data.token
   assert.equal((await api('/instructor/workshops',{token:other})).status,403)
   assert.equal((await api(`/instructor/workshops/w-mundodebarro`,{method:'PUT',token,body:{price:1}})).status,404)

@@ -83,7 +83,7 @@ test('migración: oculta fuera de zona y huérfanos, renombra coordenadas, compl
 test('Firebase + Mongo de punta a punta: reservas, serie en transacción y memoria intacta si Atlas falla',async()=>{
   const fake = fakeMongo(legacy())
   const mongo = await openMongoStore(env, { connect: () => fake.client })
-  const tokens = { 'tok-c': { uid: 'uid-cliente', email: 'sebas@x.pe' }, 'tok-t': { uid: 'uid-tallerista', email: 'santi@x.pe' } }
+  const tokens = { 'tok-c': { uid: 'uid-cliente', email: 'sebas@x.pe', email_verified: true }, 'tok-t': { uid: 'uid-tallerista', email: 'santi@x.pe', email_verified: true } }
   const app = createApp(mongo.store, { mode: 'firebase-mongo', verifyIdToken: async t => { if (!tokens[t]) throw new Error('x'); return tokens[t] }, persistOne: mongo.persistOne, persistMany: mongo.persistMany, removeOne: mongo.removeOne })
   const server = app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r))
   const api = async (path, { method = 'GET', token, body } = {}) => { const r = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: r.status === 204 ? null : await r.json() } }

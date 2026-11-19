@@ -1,0 +1,36 @@
+# Blueprint de Render para el backend (API). En Render: New → Blueprint → elegir este repositorio.
+# Las variables con sync:false se completan a mano en el panel (son secretas o dependen de cada equipo).
+services:
+  - type: web
+    name: hobbiz-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --omit=dev -w backend
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOBBIZ_MODE
+        value: firebase-mongo
+      - key: MONGODB_DB
+        value: hobbiz
+      - key: MONGODB_SEED_CATALOG
+        value: "false"
+      - key: FIREBASE_PROJECT_ID
+        value: hobbiz-597c5
+      - key: TRUST_PROXY
+        value: "1"
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_PASSWORD
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_BASE64
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
