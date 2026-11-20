@@ -19,7 +19,7 @@ import NearMe from './views/NearMe.vue'
 import StudioPublic from './views/StudioPublic.vue'
 import Locales from './views/Locales.vue'
 import Admin from './views/Admin.vue'
-import { state, homeFor } from './lib/state'
+import { state, homeFor, whenReady } from './lib/state'
 
 const routes = [
   { path:'/cuenta', component:Account, meta:{ public:true } },
@@ -48,7 +48,9 @@ const routes = [
 const router=createRouter({ history:createWebHistory(), routes, scrollBehavior:()=>({top:0}) })
 // Inicio de sesión obligatorio: cualquier ruta (salvo /cuenta) exige usuario autenticado,
 // y las secciones de cliente/tallerista solo se abren con la cuenta del rol correspondiente.
-router.beforeEach((to)=>{
+router.beforeEach(async (to)=>{
+  await whenReady()
+  if(state.initError) return true   // App.vue muestra el aviso de conexión con "Reintentar"
   if(to.meta.public) return true
   if(!state.user) return { path:'/cuenta', query: to.fullPath!=='/' ? { redirect: to.fullPath } : {} }
   if(to.meta.admin && !state.user.isAdmin) return homeFor(state.user)

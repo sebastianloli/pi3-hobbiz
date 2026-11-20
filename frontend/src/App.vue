@@ -12,6 +12,7 @@ const active=(target)=>route.path===target||target==='/tallerista/talleres' && r
 const checking=ref(false)
 async function resend(){try{await resendVerification();notify(`Te enviamos un nuevo enlace a ${state.user.email}.`)}catch(e){notify(e.message)}}
 async function checkVerified(){try{checking.value=true;notify(await refreshVerification()?'¡Correo verificado!':'Aún no vemos la verificación. Abre el enlace del correo y vuelve a intentar.')}catch(e){notify(e.message)}finally{checking.value=false}}
+const reload=()=>window.location.reload()
 async function signOut(){try{await logout();notify('Sesión cerrada.');router.push('/cuenta')}catch(e){notify(e.message)}}
 </script>
 <template>
@@ -32,6 +33,7 @@ async function signOut(){try{await logout();notify('Sesión cerrada.');router.pu
     <div v-if="state.user && state.user.emailVerified===false" class="verify-banner" role="status"><div class="shell"><MailWarning :size="18"/> <span>Verifica tu correo: te enviamos un enlace a <b>{{state.user.email}}</b>. Lo necesitas para reservar, reseñar o pedir la aprobación de tallerista.</span><button class="btn light sm" @click="resend">Reenviar</button><button class="btn primary sm" :disabled="checking" @click="checkVerified">Ya lo verifiqué</button></div></div>
     <main class="shell main-area">
       <div v-if="!state.ready" class="loading-area"><div class="spinner"/> {{state.waking?'Despertando el servidor de Hobbiz (puede tardar hasta un minuto)...':'Preparando Hobbiz...'}}</div>
+      <div v-else-if="state.initError" class="empty"><h3>No pudimos conectar con Hobbiz</h3><p>{{state.initError}}</p><p class="small muted">Si acabas de abrir la página, el servidor puede estar despertando: espera unos segundos.</p><button class="btn primary" @click="reload">Reintentar</button></div>
       <RouterView v-else v-slot="{ Component }"><component :is="Component" :key="route.fullPath" /></RouterView>
     </main>
     <nav v-if="state.user" class="bottom-nav" aria-label="Navegación principal"><div class="bottom-inner shell"><RouterLink v-for="item in role==='client'?navClient:navOwner" :key="item.to" :to="item.to" :class="{active:active(item.to)}"><component :is="item.icon" :size="22" :stroke-width="active(item.to)?2.4:1.9"/><span>{{item.title}}</span></RouterLink></div></nav>

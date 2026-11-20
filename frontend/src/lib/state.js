@@ -15,7 +15,7 @@ export const state=reactive({
   token:store.read(),user:null,
   mode:'demo',
   meta:{categories:['Arte','Cerámica','Música','Escritura','Artes escénicas','Bienestar','Oficios','Otros'],districts:['Miraflores','Barranco'],districtCenters:{},districtBounds:{},images:[],accents:[],fonts:[],layouts:[]},
-  ready:false,busy:false,toast:'',favoriteIds:[],waking:false
+  ready:false,busy:false,toast:'',favoriteIds:[],waking:false,initError:''
 })
 let clearToast
 export function notify(text){state.toast=text;if(clearToast)clearTimeout(clearToast);clearToast=setTimeout(()=>state.toast='',4500)}
@@ -130,7 +130,7 @@ export async function initialize(){
     // Solo se olvida la sesión recordada si el servidor la rechaza (401); ante un error de red se conserva.
     if(state.token){try{state.user=(await request('/auth/me',{token:state.token})).user}catch(e){state.user=null;if(e.status===401){state.token='';store.clear()}else notify(e.message)}}
     await refreshFavorites()
-  }catch(e){notify(e.message)}finally{state.ready=true}
+  }catch(e){state.initError=e.message}finally{state.ready=true}
 }
 export function money(amount){return `S/ ${Number(amount||0).toFixed(0)}`}
 export function dateText(date){return date?new Date(`${date}T12:00:00`).toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'short'}):''}
